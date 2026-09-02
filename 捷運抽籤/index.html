@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台北捷運隨機抽籤系統</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚇 台北捷運隨機抽籤系統</h1>
+            <p>分開抽取路線代碼和站號</p>
+        </header>
+
+        <div class="lottery-section">
+            <div class="main-lottery">
+                <h2>捷運站抽籤</h2>
+                <div class="lottery-display" id="lotteryDisplay">
+                    <span class="placeholder">點擊抽籤按鈕開始</span>
+                </div>
+                <button class="lottery-btn" id="lotteryBtn">抽取捷運站</button>
+            </div>
+        </div>
+
+        <div class="result-section">
+            <h2>抽籤結果</h2>
+            <div class="final-result" id="finalResult">
+                <span class="placeholder">等待抽籤結果...</span>
+            </div>
+            <button class="reset-btn" id="resetBtn">重新開始</button>
+        </div>
+
+        <div class="history-section">
+            <div class="history-header">
+                <h2>抽籤歷史</h2>
+                <button class="clear-btn" id="clearBtn">清除歷史</button>
+            </div>
+            <div class="history-list" id="historyList">
+                <p class="no-history">尚無抽籤記錄</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html> 
