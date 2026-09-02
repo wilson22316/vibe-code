@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="zh-Hant">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width,initial-scale=1" />
+		<title>打字雨 — Typing Rain</title>
+		<style>
+			:root {
+				--bg: #0b1226;
+				--panel: rgba(255, 255, 255, 0.06);
+				--accent: #7dd3fc;
+				--glass: rgba(255, 255, 255, 0.04);
+			}
+			html,
+			body {
+				height: 100%;
+				margin: 0;
+				font-family:
+					system-ui,
+					-apple-system,
+					"Segoe UI",
+					Roboto,
+					"Noto Sans CJK TC",
+					Arial;
+			}
+			body {
+				background: linear-gradient(180deg, #071029 0%, #0b1226 60%);
+				color: #e6eef8;
+				display: flex;
+				align-items: stretch;
+				justify-content: center;
+				padding: 18px;
+			}
+			.container {
+				width: 100%;
+				max-width: 1100px;
+				height: calc(100vh - 36px);
+				display: flex;
+				flex-direction: column;
+				gap: 12px;
+			}
+			header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+			}
+			h1 {
+				margin: 0;
+				font-size: 20px;
+				letter-spacing: 0.6px;
+			}
+			.controls {
+				display: flex;
+				gap: 8px;
+				align-items: center;
+			}
+			button {
+				background: var(--accent);
+				border: 0;
+				padding: 8px 12px;
+				border-radius: 8px;
+				color: #042029;
+				font-weight: 600;
+				cursor: pointer;
+			}
+			.hud {
+				display: flex;
+				gap: 12px;
+				align-items: center;
+				font-size: 13px;
+			}
+			.panel {
+				background: var(--panel);
+				border-radius: 10px;
+				padding: 10px;
+				display: flex;
+				gap: 12px;
+				align-items: center;
+			}
+			main {
+				flex: 1;
+				display: flex;
+				gap: 12px;
+			}
+			.game {
+				flex: 1;
+				position: relative;
+				border-radius: 12px;
+				overflow: hidden;
+				box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+			}
+			canvas {
+				display: block;
+				width: 100%;
+				height: 100%;
+			}
+			.sidebar {
+				width: 320px;
+				display: flex;
+				flex-direction: column;
+				gap: 12px;
+			}
+			.stats {
+				background: var(--glass);
+				padding: 12px;
+				border-radius: 10px;
+				font-size: 14px;
+			}
+			.input-row {
+				display: flex;
+				gap: 8px;
+				align-items: center;
+			}
+			input[type="text"] {
+				flex: 1;
+				padding: 10px;
+				border-radius: 8px;
+				border: 0;
+				background: rgba(255, 255, 255, 0.06);
+				color: inherit;
+				font-size: 16px;
+			}
+			.small {
+				font-size: 12px;
+				color: #b8d1e6;
+			}
+			.city-skyline {
+				position: absolute;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				height: 140px;
+				pointer-events: none;
+				background-image:
+					linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.25)),
+					radial-gradient(
+						circle at 20% 20%,
+						rgba(255, 255, 255, 0.03),
+						transparent 10%
+					),
+					linear-gradient(
+						90deg,
+						rgba(255, 255, 255, 0.02),
+						rgba(255, 255, 255, 0.01)
+					);
+				mix-blend-mode: screen;
+			}
+			/* simple skyline silhouette using CSS shapes */
+			.skyline::after {
+				content: "";
+				position: absolute;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				height: 100%;
+				background: linear-gradient(#081827, #04121a 60%);
+				mask-image: linear-gradient(#000 0 0);
+			}
+			footer {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				color: #9fb7cf;
+				font-size: 12px;
+			}
+			.help {
+				color: #9fb7cf;
+			}
+			.label {
+				opacity: 0.9;
+				font-size: 13px;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<header>
+				<div style="display: flex; gap: 12px; align-items: center">
+					<h1>打字雨 — Typing Rain</h1>
+					<div class="small">目標：在文字落地前盡快輸入單字以獲分</div>
+				</div>
+				<div class="controls">
+					<div class="hud panel">
+						<div class="label">分數：<strong id="score">0</strong></div>
+						<div class="label">等級：<strong id="level">1</strong></div>
+						<div class="label">命中：<strong id="hits">0</strong></div>
+						<div class="label">未命中：<strong id="misses">0</strong></div>
+					</div>
+					<button id="startBtn">開始</button>
+					<button id="pauseBtn">暫停</button>
+					<button id="resetBtn">重置</button>
+				</div>
+			</header>
+
+			<main>
+				<section class="game panel" id="gamePanel">
+					<canvas id="gameCanvas"></canvas>
+					<div class="city-skyline skyline"></div>
+				</section>
+
+				<aside class="sidebar">
+					<div class="stats panel">
+						<div class="label">輸入框（自動聚焦）</div>
+						<div class="input-row" style="margin-top: 8px">
+							<input
+								id="inputBox"
+								type="text"
+								placeholder="在這輸入任一正在落下的單字，按 Enter 或空白提交"
+								autocomplete="off"
+							/>
+							<div style="min-width: 64px; text-align: center" class="small">
+								按 Enter/空白 提交
+							</div>
+						</div>
+						<hr
+							style="
+								border: none;
+								height: 1px;
+								background: rgba(255, 255, 255, 0.03);
+								margin: 10px 0;
+							"
+						/>
+						<div style="display: flex; flex-direction: column; gap: 6px">
+							<div class="small">
+								精準度：<strong id="accuracy">100%</strong>
+							</div>
+							<div class="small">
+								總按鍵數：<strong id="keysTotal">0</strong>
+							</div>
+							<div class="small">
+								正確按鍵：<strong id="keysCorrect">0</strong>
+							</div>
+							<div class="small">
+								當前同時單字：<strong id="activeCount">0</strong>
+							</div>
+							<div class="small">
+								速度等級（落速與密度）：<strong id="speedVal">1</strong>
+							</div>
+						</div>
+					</div>
+
+					<div class="panel" style="padding: 12px; font-size: 13px">
+						<div style="font-weight: 600; margin-bottom: 6px">遊戲規則簡述</div>
+						<div class="small" style="line-height: 1.45">
+							- 文字從畫面頂部掉落，當單字落到底部未輸入視為未命中。<br />
+							-
+							成功在落地前完整輸入單字即可得分；得分依單字長度與剩餘時間計算。<br />
+							- 隨著命中數或時間進行，難度（落速與同時單字數）會提升。<br />
+						</div>
+					</div>
+
+					<div class="panel" style="padding: 10px; font-size: 13px">
+						<div style="font-weight: 600; margin-bottom: 6px">小技巧</div>
+						<div class="small" style="line-height: 1.45">
+							- 優先輸入最接近底部的單字以避免漏掉。<br />
+							- 若需要練習長字詞，可留意同時出現的短字以維持命中率。<br />
+						</div>
+					</div>
+				</aside>
+			</main>
+
+			<footer>
+				<div class="help">
+					提示：遊戲在桌面與行動版瀏覽器皆可運作（支援觸控鍵盤）
+				</div>
+				<div class="small">簡潔版 — 所有資源皆內嵌</div>
+			</footer>
+		</div>
+
+		<script>
+			/*
+  Typing Rain — Single-file SPA
+  主要物件：
+   - Word: {id, text, x, y, speed, spawnTime, matched}
+   - Game state：score, level, hits, misses, keysCorrect, keysTotal
+*/
+
+			(() => {
+				const canvas = document.getElementById("gameCanvas");
+				const panel = document.getElementById("gamePanel");
+				const ctx = canvas.getContext("2d", { alpha: true });
+
+				// UI elements
+				const inputBox = document.getElementById("inputBox");
+				const startBtn = document.getElementById("startBtn");
+				const pauseBtn = document.getElementById("pauseBtn");
+				const resetBtn = document.getElementById("resetBtn");
+
+				const scoreEl = document.getElementById("score");
+				const levelEl = document.getElementById("level");
+				const hitsEl = document.getElementById("hits");
+				const missesEl = document.getElementById("misses");
+				const accuracyEl = document.getElementById("accuracy");
+				const keysTotalEl = document.getElementById("keysTotal");
+				const keysCorrectEl = document.getElementById("keysCorrect");
+				const activeCountEl = document.getElementById("activeCount");
+				const speedValEl = document.getElementById("speedVal");
+
+				// Responsive canvas
+				function resizeCanvas() {
+					const rect = panel.getBoundingClientRect();
+					canvas.width = Math.floor(rect.width * devicePixelRatio);
+					canvas.height = Math.floor(rect.height * devicePixelRatio);
+					ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+				}
+				new ResizeObserver(resizeCanvas).observe(panel);
+				resizeCanvas();
+
+				// word list (可以擴充或替換成更完整字庫)
+				const WORDS = [
+					"雨",
+					"窗",
+					"城市",
+					"光",
+					"風",
+					"手機",
+					"碼",
+					"程式",
+					"打字",
+					"速度",
+					"挑戰",
+					"音樂",
+					"夏天",
+					"冬天",
+					"春天",
+					"秋天",
+					"天空",
+					"地面",
+					"街道",
+					"咖啡",
+					"植物",
+					"河流",
+					"橋樑",
+					"火車",
+					"車站",
+					"飛機",
+					"星星",
+					"月亮",
+					"太陽",
+					"雲朵",
+					"鍵盤",
+					"滑鼠",
+					"顯示器",
+					"程式碼",
+					"算法",
+					"資料庫",
+					"伺服器",
+					"前端",
+					"後端",
+					"全端",
+					"測試",
+					"部署",
+					"版本",
+				];
+
+				// game state
+				let words = []; // active falling words
+				let nextId = 1;
+				let lastSpawn = 0;
+				let spawnInterval = 1500; // ms, will shrink as difficulty rises
+				let lastTime = performance.now();
+				let running = false;
+				let paused = false;
+				let score = 0;
+				let level = 1;
+				let hits = 0;
+				let misses = 0;
+				let keysTotal = 0;
+				let keysCorrect = 0;
+				let gravity = 40; // base speed px/sec factor
+				let maxSimultaneous = 3;
+				let totalWordsSpawned = 0;
+
+				// helper: random pick
+				function randChoice(arr) {
+					return arr[Math.floor(Math.random() * arr.length)];
+				}
+
+				// spawn a word at random x
+				function spawnWord() {
+					const text = randChoice(WORDS);
+					const padding = 40;
+					const x =
+						Math.random() * (canvas.width / devicePixelRatio - padding * 2) +
+						padding;
+					const speed =
+						(gravity + Math.random() * gravity * 0.6) * (0.6 + level * 0.06); // px/sec
+					words.push({
+						id: nextId++,
+						text,
+						x,
+						y: -30,
+						speed,
+						spawnTime: performance.now(),
+						matched: false,
+						progress: 0, // used when highlighting matched letters
+					});
+					lastSpawn = performance.now();
+					totalWordsSpawned++;
+				}
+
+				// main update loop
+				function update(now) {
+					if (!running || paused) {
+						lastTime = now;
+						requestAnimationFrame(loop);
+						return;
+					}
+					const dt = (now - lastTime) / 1000;
+					lastTime = now;
+
+					// adaptive spawn
+					if (
+						now - lastSpawn > spawnInterval &&
+						words.length < maxSimultaneous
+					) {
+						spawnWord();
+					}
+
+					// update positions
+					const floorY = canvas.height / devicePixelRatio - 10 - 140; // offset by skyline height
+					for (let w of words) {
+						w.y += w.speed * dt;
+					}
+
+					// check for words that reached bottom
+					for (let i = words.length - 1; i >= 0; i--) {
+						const w = words[i];
+						if (w.y >= floorY) {
+							// missed
+							words.splice(i, 1);
+							misses++;
+							// penalty
+							score = Math.max(0, score - Math.floor(1 * w.text.length));
+							updateUI();
+						}
+					}
+
+					// difficulty progression
+					maybeIncreaseDifficulty();
+
+					// draw
+					draw();
+
+					requestAnimationFrame(loop);
+				}
+
+				function loop(now) {
+					if (!now) now = performance.now();
+					update(now);
+				}
+
+				// draw scene
+				function draw() {
+					// clear
+					ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+					const w = canvas.width / devicePixelRatio;
+					const h = canvas.height / devicePixelRatio;
+
+					// background gradient (sky with glow)
+					const g = ctx.createLinearGradient(0, 0, 0, h);
+					g.addColorStop(0, "#07112a");
+					g.addColorStop(1, "#041024");
+					ctx.fillStyle = g;
+					ctx.fillRect(0, 0, w, h);
+
+					// draw subtle stars
+					for (let i = 0; i < 40; i++) {
+						ctx.fillStyle = "rgba(255,255,255," + Math.random() * 0.07 + ")";
+						ctx.beginPath();
+						ctx.arc(
+							(i * 53) % w,
+							(i * 37) % (h * 0.5),
+							Math.random() * 1.2,
+							0,
+							Math.PI * 2,
+						);
+						ctx.fill();
+					}
+
+					// draw falling words (like raindrops)
+					ctx.textBaseline = "top";
+					for (let word of words) {
+						// shadow / glow line
+						ctx.font = "18px system-ui, Arial";
+						ctx.fillStyle = "rgba(0,0,0,0.35)";
+						ctx.fillText(word.text, word.x + 2, word.y + 2);
+
+						// highlight matched prefix
+						const matchedLen = word.progress || 0;
+						if (matchedLen > 0) {
+							// draw matched portion
+							ctx.save();
+							const full = word.text;
+							const matchText = full.slice(0, matchedLen);
+							const restText = full.slice(matchedLen);
+
+							// draw matched with accent color and slight glow
+							ctx.fillStyle = "#bff0ff";
+							ctx.fillText(matchText, word.x, word.y);
+							// draw rest normal
+							ctx.fillStyle = "rgba(255,255,255,0.9)";
+							const measured = ctx.measureText(matchText).width;
+							ctx.fillText(restText, word.x + measured, word.y);
+							ctx.restore();
+						} else {
+							ctx.fillStyle = "rgba(255,255,255,0.95)";
+							ctx.fillText(word.text, word.x, word.y);
+						}
+
+						// small trailing rain effect
+						ctx.strokeStyle = "rgba(125,211,252,0.08)";
+						ctx.beginPath();
+						ctx.moveTo(
+							word.x + ctx.measureText(word.text).width / 2,
+							word.y + 18,
+						);
+						ctx.lineTo(
+							word.x + ctx.measureText(word.text).width / 2,
+							word.y + 40,
+						);
+						ctx.stroke();
+					}
+
+					// draw skyline silhouette at bottom (simple rectangles for buildings)
+					const skylineHeight = 140;
+					const baseY = h - skylineHeight;
+					ctx.fillStyle = "#021421";
+					ctx.fillRect(0, baseY, w, skylineHeight);
+					// building blocks
+					const blockWidths = [60, 80, 40, 120, 70, 50, 90, 40, 110];
+					let x = 0;
+					for (let bw of blockWidths) {
+						const bh = 40 + Math.random() * (skylineHeight - 40);
+						ctx.fillStyle = `rgba(2,20,33,${0.9 - Math.random() * 0.25})`;
+						ctx.fillRect(x, h - bh, bw, bh);
+						x += bw + 6;
+						if (x > w) break;
+					}
+				}
+
+				// update UI labels
+				function updateUI() {
+					scoreEl.textContent = score;
+					levelEl.textContent = level;
+					hitsEl.textContent = hits;
+					missesEl.textContent = misses;
+					keysTotalEl.textContent = keysTotal;
+					keysCorrectEl.textContent = keysCorrect;
+					activeCountEl.textContent = words.length;
+					speedValEl.textContent = level;
+					const acc = keysTotal
+						? Math.round((keysCorrect / keysTotal) * 100)
+						: 100;
+					accuracyEl.textContent = acc + "%";
+				}
+
+				// Try to match input to active words
+				function submitInput(raw) {
+					const text = raw.trim();
+					if (!text) return;
+					// find candidate words: exact match (case-sensitive since CJK mostly)
+					// choose the word that is lowest on screen (closest to bottom) among matches
+					let candidates = words.filter((w) => w.text === text);
+					if (candidates.length === 0) {
+						// no exact match: decrement score slightly, count as wrong input
+						keysTotal += text.length;
+						// count correct keys for any matching prefix occurrences
+						// compute best prefix correct across words
+						let bestCorrect = 0;
+						for (let w of words) {
+							for (let i = 1; i <= text.length; i++) {
+								if (w.text.startsWith(text.slice(0, i)))
+									bestCorrect = Math.max(bestCorrect, i);
+								else break;
+							}
+						}
+						keysCorrect += bestCorrect;
+						score = Math.max(0, score - Math.floor(1 + text.length * 0.2));
+						updateUI();
+						return;
+					}
+					// select candidate nearest to floor (largest y)
+					candidates.sort((a, b) => b.y - a.y);
+					const target = candidates[0];
+					// success
+					const timeLeftFactor = Math.max(
+						0.2,
+						1 - target.y / (canvas.height / devicePixelRatio),
+					);
+					const basePoints = 10 + target.text.length * 5;
+					const gained = Math.round(basePoints * (1 + timeLeftFactor));
+					score += gained;
+					hits++;
+					keysTotal += text.length;
+					keysCorrect += text.length;
+					// remove target
+					words = words.filter((w) => w.id !== target.id);
+					updateUI();
+				}
+
+				// when user types, we also show partial matches by increasing word.progress
+				inputBox.addEventListener("input", (e) => {
+					const v = e.target.value;
+					// track keystats
+					// for simplicity, count every input event length change as keystrokes
+					// but better to capture keydown; we'll update keysTotal in keydown handler.
+					// highlight progress: choose the word whose prefix matches v best and is closest to bottom
+					let best = null;
+					let bestLen = 0;
+					for (let w of words) {
+						const mlen = commonPrefixLength(w.text, v);
+						if (
+							mlen > bestLen ||
+							(mlen === bestLen && (!best || w.y > best.y))
+						) {
+							best = w;
+							bestLen = mlen;
+						}
+					}
+					for (let w of words) {
+						w.progress = w === best ? bestLen : 0;
+					}
+				});
+
+				// capture keystrokes for accuracy
+				inputBox.addEventListener("keydown", (e) => {
+					// Count keys (ignore special control keys)
+					if (e.key.length === 1) {
+						keysTotal++;
+						// simple heuristic: if pressed key exists in at least one word's next char for some progress -> correct
+						const nextCharCorrect = words.some((w) => {
+							const p = w.progress || 0;
+							return w.text[p] === e.key;
+						});
+						if (nextCharCorrect) keysCorrect++;
+					}
+					if (e.key === "Enter" || e.key === " ") {
+						e.preventDefault();
+						const val = inputBox.value;
+						submitInput(val);
+						inputBox.value = "";
+						for (let w of words) w.progress = 0;
+					}
+					updateUI();
+				});
+
+				function commonPrefixLength(a, b) {
+					let i = 0;
+					while (i < a.length && i < b.length && a[i] === b[i]) i++;
+					return i;
+				}
+
+				// difficulty increase rules
+				function maybeIncreaseDifficulty() {
+					// increase every 10 successful hits or every 25 spawned words
+					const shouldLevelUp =
+						(hits && hits % 10 === 0 && hits !== 0) ||
+						(totalWordsSpawned && totalWordsSpawned % 25 === 0);
+					// Only increase once per threshold: use level variable as guard
+					const desiredLevel = Math.floor(hits / 10) + 1;
+					if (desiredLevel > level) {
+						level = desiredLevel;
+						gravity += 6; // increases fall speed
+						spawnInterval = Math.max(400, spawnInterval - 150);
+						maxSimultaneous = Math.min(10, maxSimultaneous + 1);
+					}
+					// minor progressive increase over time (smooth)
+					// every 20 seconds, slightly increase speed
+					// (roll your own tuning below)
+					updateUI();
+				}
+
+				// control buttons
+				startBtn.addEventListener("click", () => {
+					if (!running) {
+						running = true;
+						paused = false;
+						lastTime = performance.now();
+						lastSpawn = performance.now();
+						requestAnimationFrame(loop);
+						inputBox.focus();
+					} else {
+						// restart from pause
+						paused = false;
+						inputBox.focus();
+					}
+				});
+
+				pauseBtn.addEventListener("click", () => {
+					paused = !paused;
+					pauseBtn.textContent = paused ? "繼續" : "暫停";
+					if (!paused) inputBox.focus();
+				});
+
+				resetBtn.addEventListener("click", () => {
+					running = false;
+					paused = false;
+					words = [];
+					score = 0;
+					level = 1;
+					hits = 0;
+					misses = 0;
+					keysTotal = 0;
+					keysCorrect = 0;
+					spawnInterval = 1500;
+					gravity = 40;
+					maxSimultaneous = 3;
+					totalWordsSpawned = 0;
+					updateUI();
+					draw();
+					inputBox.value = "";
+				});
+
+				// initial draw
+				draw();
+				updateUI();
+
+				// auto-focus input on click
+				panel.addEventListener("click", () => inputBox.focus());
+				window.addEventListener("keydown", (e) => {
+					// pressing F key focuses input
+					if (e.key === "f" && document.activeElement !== inputBox) {
+						inputBox.focus();
+					}
+				});
+
+				// small auto-spawn when running to keep gameplay interesting
+				// but spawn logic located in update()
+			})();
+		</script>
+	</body>
+</html>
