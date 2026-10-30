@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { HUMAN_SIDES, TEAMS } from './config.js';
+import { HUMAN_SIDES, POWER, TEAMS } from './config.js';
 import { sound } from './audio/sound.js';
-import { Ball, createLandingMarker, createTimingCue } from './entities/ball.js';
+import { Ball, createLandingMarker, createSpikeMarker, createTimingCue } from './entities/ball.js';
 import { Player } from './entities/player.js';
 import { Effects } from './fx/effects.js';
 import { input } from './input/keyboard.js';
@@ -39,7 +39,8 @@ const ball = new Ball();
 const landingMarker = createLandingMarker();
 const timingCue = createTimingCue();
 const aimMarker = createAimMarker();
-scene.add(ball.mesh, landingMarker, timingCue, aimMarker);
+const spikeMarker = createSpikeMarker();
+scene.add(ball.mesh, landingMarker, timingCue, aimMarker, spikeMarker);
 
 const teams = {};
 for (const [name, team] of Object.entries(TEAMS)) {
@@ -54,16 +55,28 @@ const effects = new Effects(scene);
 const rig = new CameraRig(camera, renderer.domElement);
 const COURT_CENTER = new THREE.Vector3(0, 0, 0);
 
+// 玩家強力扣球的衝擊定格：鏡頭直接切到扣球者側前方，對準手碰球的地方，定格後拉回原本視角
+function powerImpact({ pos, side }) {
+  const out = Math.sign(pos.x) || 1; // 從場外那一側看進來，背景才是球場
+  const cutPos = new THREE.Vector3(pos.x + out * 3.2, pos.y - 0.6, pos.z - side * 1.4);
+  const cutTarget = new THREE.Vector3(pos.x, pos.y - 0.55, pos.z + side * 0.25);
+  rig.cutTo(cutPos, cutTarget, POWER.freezeTime, POWER.cutBackTime);
+  effects.freeze(POWER.freezeTime);
+  effects.shockwave(pos, cutPos);
+  hud.impact(POWER.freezeTime);
+}
+
 // 擊球、攔網、撞網、落地的特效與音效
 function onRallyEvent(name, data) {
   if (name === 'hit') {
-    sound.play(data.type === 'spike' ? 'spike' : data.type === 'set' ? 'set' : 'bump');
+    sound.play(data.power ? 'power' : data.type === 'spike' ? 'spike' : data.type === 'set' ? 'set' : 'bump');
     if (data.human && data.grade === 'perfect') sound.play('perfect');
-    effects.hit(data.pos, data.grade);
+    effects.hit(data.pos, data.power ? 'perfect' : data.grade);
     if (data.type === 'spike') {
-      effects.shake(data.grade === 'perfect' ? 0.25 : 0.12);
-      // 只有玩家的完美扣球放慢動作：對手扣球放慢會讓接球變簡單
-      if (data.human && data.grade === 'perfect') effects.slowMo();
+      effects.shake(data.power ? 0.45 : data.grade === 'perfect' ? 0.25 : 0.12);
+      // 只有玩家的完美扣球、強力扣球放慢動作：對手扣球放慢會讓接球變簡單
+      if (data.human && data.power) powerImpact(data);
+      else if (data.human && data.grade === 'perfect') effects.slowMo();
     }
   } else if (name === 'block') {
     sound.play('block');
@@ -74,8 +87,8 @@ function onRallyEvent(name, data) {
   } else if (name === 'land') {
     const hard = data.lastType === 'spike' || data.lastType === 'block';
     sound.play('land');
-    effects.sand(data.pos, hard ? 1.6 : 1);
-    if (hard) effects.shake(0.2);
+    effects.sand(data.pos, data.power ? 2.2 : hard ? 1.6 : 1);
+    if (hard) effects.shake(data.power ? 0.35 : 0.2);
   }
 }
 
@@ -130,8 +143,22 @@ function startMatch() {
   setAiLevel(LEVELS[levelIndex]);
   for (const p of teams.away) p.speedScale = aiLevel().speed;
   match.reset();
+  rally.resetEnergy();
   hud.setScore(match.score, match.servingSide);
   serve.reset(match.server(teams));
+}
+
+// 按 A：能量滿就開啟強力擊球（下一次扣球生效）；已開啟時再按一次就取消（能量保留）
+function togglePower() {
+  const side = HUMAN_SIDES[0];
+  if (rally.disarmPower(side)) {
+    sound.play('uncharge');
+    hud.toast('已取消強力擊球');
+  } else if (rally.armPower(side)) {
+    sound.play('charge');
+  } else {
+    hud.toast('能量還沒集滿');
+  }
 }
 
 function updateMenu() {
@@ -263,13 +290,16 @@ renderer.setAnimationLoop((time) => {
   } else {
     serve.update(dt);
     rally.update();
+    if (input.wasPressed('power')) togglePower();
     // 一局結束、結果畫面出現後，按鍵回到選單
     if (match.winner && rally.state === 'idle' && input.wasPressed('action')) openMenu();
   }
 
   // 暫停時整個場面定格（球、角色、粒子、慢動作都不動），鏡頭仍可轉動查看
+  sound.setHum(!inMenu && !paused && rally.armed[HUMAN_SIDES[0]]); // 蓄氣中的嗡嗡聲
+
   if (paused) {
-    rig.update(dt, effects.shakeOffset);
+    rig.update(dt, effects.shakeOffset, true);
     input.endFrame();
     graphics.render();
     return;
@@ -277,7 +307,8 @@ renderer.setAnimationLoop((time) => {
 
   if (rally.state !== 'idle') {
     accumulator += simDt;
-    while (accumulator >= PHYSICS_STEP) {
+    // 強力扣球命中會在中途觸發定格：剩下的步數等定格結束再算，畫面才會停在手碰球的那一刻
+    while (accumulator >= PHYSICS_STEP && !effects.frozen) {
       rally.step(PHYSICS_STEP);
       accumulator -= PHYSICS_STEP;
     }
@@ -293,11 +324,25 @@ renderer.setAnimationLoop((time) => {
   if (cue) timingCue.userData.update(cue.x, cue.z, cue.timeLeft);
   landingMarker.visible = live && !timingCue.visible && predictLanding(ball, landing) !== null;
   if (landingMarker.visible) landingMarker.position.set(landing.x, 0.03, landing.z);
+  // 玩家扣球前的瞄準準星
+  const spikeTarget = rally.getSpikeTarget();
+  spikeMarker.visible = spikeTarget !== null;
+  if (spikeTarget) spikeMarker.position.set(spikeTarget.x, 0.04, spikeTarget.z);
 
   positioning.update(plan, ball.pos, live, rally.time);
-  for (const p of players) p.update(simDt);
+  const animDt = effects.frozen ? 0 : simDt; // 這一幀中途開始定格的話，角色和球也停在碰球那一刻
+  for (const p of players) {
+    // 強力擊球的氣場（主畫面不顯示）
+    p.setAura(inMenu ? 0 : rally.auraLevel(p));
+    p.update(animDt);
+    if (p.auraLevel > 0.05) effects.auraSparks(p.pos, p.auraLevel);
+  }
 
-  ball.syncMesh(simDt);
+  // 扣球飛行中：拖尾；強力球再加能量光
+  ball.setPower(rally.ballState === 'power');
+  if (live && rally.ballState && !effects.frozen) effects.trail(ball.pos, rally.ballState === 'power');
+  ball.syncMesh(animDt);
+  hud.setEnergy(rally.energy, rally.armed, POWER.maxEnergy);
   effects.update(dt);
   rig.update(dt, effects.shakeOffset);
   input.endFrame();

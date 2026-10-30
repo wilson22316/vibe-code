@@ -9,9 +9,8 @@ const BINDINGS = {
   Escape: 'pause',
   KeyP: 'pause',
   ArrowLeft: 'left',
-  KeyA: 'left',
   ArrowRight: 'right',
-  KeyD: 'right',
+  KeyA: 'power', // 能量滿時開啟強力擊球
   KeyM: 'mute',
   KeyG: 'graphics',
   KeyC: 'camera',

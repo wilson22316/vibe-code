@@ -13,6 +13,7 @@ const menu = document.getElementById('menu');
 const muteBadge = document.getElementById('mute');
 const graphicsButton = document.getElementById('graphics-button');
 const toastEl = document.getElementById('toast');
+const impactEl = document.getElementById('impact');
 const pauseEl = document.getElementById('pause');
 const pauseOptions = [...document.querySelectorAll('#pause-options button')];
 const pauseButton = document.getElementById('pause-button');
@@ -26,7 +27,15 @@ const JUDGE_TEXT = {
   far: '搆不到',
   block: 'BLOCK!',
   dive: '撲救！',
+  power: 'POWER!',
 };
+
+// 能量條：每隊一組格子
+const energyEls = {
+  1: document.getElementById('energy-home'),
+  [-1]: document.getElementById('energy-away'),
+};
+let energyKey = '';
 
 // 重新觸發 CSS 動畫
 function replay(el, className) {
@@ -40,6 +49,25 @@ export const hud = {
   showMenu(selected) {
     menu.hidden = selected === null;
     for (const b of levelButtons) b.classList.toggle('selected', b.dataset.level === selected);
+  },
+
+  // energy、armed：{ 1: 我方, -1: 對手 }；只有數值變了才更新畫面
+  setEnergy(energy, armed, max) {
+    const key = `${energy[1]},${energy[-1]},${armed[1]},${armed[-1]}`;
+    if (key === energyKey) return;
+    energyKey = key;
+    for (const side of [1, -1]) {
+      const el = energyEls[side];
+      const cells = el.querySelector('.cells');
+      if (cells.children.length !== max) cells.innerHTML = '<div class="cell"></div>'.repeat(max);
+      [...cells.children].forEach((c, i) => c.classList.toggle('on', i < energy[side]));
+      const full = energy[side] >= max;
+      el.classList.toggle('full', full && !armed[side]);
+      el.classList.toggle('armed', armed[side]);
+      const label = el.querySelector('.energy-label');
+      if (side > 0) label.textContent = armed[side] ? '強力擊球準備！（A 取消）' : full ? '按 A 強力擊球！' : '';
+      else label.textContent = full ? '對手能量滿！' : '';
+    }
   },
 
   setMuted(muted) {
@@ -82,6 +110,12 @@ export const hud = {
       pauseButton.blur();
       callback();
     });
+  },
+
+  // 強力扣球的衝擊畫面（白光＋速度線），持續 seconds 秒
+  impact(seconds) {
+    impactEl.style.setProperty('--impact-time', `${seconds}s`);
+    replay(impactEl, 'show');
   },
 
   // 右上角短暫提示
@@ -128,7 +162,7 @@ export const hud = {
     replay(result, 'pop');
   },
 
-  // 擊球時機判定：'perfect' | 'good' | 'bad' | 'miss' | 'far' | 'block' | 'dive'
+  // 擊球時機判定：'perfect' | 'good' | 'bad' | 'miss' | 'far' | 'block' | 'dive' | 'power'
   showJudge(grade) {
     judge.textContent = JUDGE_TEXT[grade];
     judge.dataset.grade = grade;

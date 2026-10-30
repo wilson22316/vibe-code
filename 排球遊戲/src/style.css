@@ -53,6 +53,67 @@ body {
   text-align: center;
 }
 
+/* 能量條：記分板下方，左我方、右對手 */
+#energy {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  display: flex;
+  gap: 56px;
+  transform: translateX(-50%);
+}
+
+.energy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.energy .cells {
+  display: flex;
+  gap: 4px;
+}
+
+.energy .cell {
+  width: 18px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  background: rgba(20, 40, 70, 0.45);
+}
+
+.energy .cell.on {
+  background: #ffd23f;
+}
+
+.energy.full .cell.on {
+  background: #ffb02e;
+  box-shadow: 0 0 8px #ffb02e;
+  animation: energy-glow 0.5s ease-in-out infinite alternate;
+}
+
+.energy.armed .cell.on {
+  background: #ff5a3d;
+  box-shadow: 0 0 10px #ff5a3d;
+}
+
+.energy-label {
+  min-height: 1.2em;
+  font-size: 13px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+}
+
+@keyframes energy-glow {
+  from {
+    opacity: 0.6;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* 發球方旁邊亮一顆小球 */
 .serve-dot {
   width: 12px;
@@ -310,6 +371,36 @@ body {
   animation: pop 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
 }
 
+/* 強力扣球的衝擊畫面：一開始白光一閃，接著放射狀速度線，持續定格的時間 */
+#impact {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(255, 255, 255, 0) 0deg 5deg, rgba(255, 255, 255, 0.55) 5deg 6deg);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 28%, black 72%);
+  mask-image: radial-gradient(circle at 50% 50%, transparent 28%, black 72%);
+}
+
+#impact.show {
+  animation: impact var(--impact-time, 0.5s) linear forwards;
+}
+
+@keyframes impact {
+  0% {
+    opacity: 1;
+    background-color: rgba(255, 255, 255, 0.85);
+  }
+  15% {
+    background-color: rgba(255, 255, 255, 0);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 #judge {
   position: absolute;
   top: 38%;
@@ -339,6 +430,9 @@ body {
 }
 #judge[data-grade='block'] {
   color: #7a4dff;
+}
+#judge[data-grade='power'] {
+  color: #ff7a00;
 }
 
 #judge.flash {

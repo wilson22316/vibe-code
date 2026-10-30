@@ -7,6 +7,9 @@ export const ACCESSORIES = ['none', 'headband', 'sunglasses'];
 
 const OUTLINE_THICKNESS = 3.5;
 export const HIP_HEIGHT = 0.62; // 髖關節高度：腿的支點，也就是腿長
+export const SHOULDER_HEIGHT = 1.1; // 肩膀（手臂支點）高度
+export const ARM_LENGTH = 0.43; // 肩膀到手掌中心的距離
+export const HAND_RADIUS = 0.072;
 const HEAD_RADIUS = 0.3;
 const HAIR_RADIUS = 0.318;
 const HAIRLINE_TILT = -0.55; // 頭髮往後蓋：額頭露出來、後腦杓蓋住
@@ -95,10 +98,10 @@ function buildTorso(body, m, look) {
 
 function buildArm(body, m, x) {
   const pivot = new THREE.Group(); // 以肩膀為支點
-  pivot.position.set(x, 1.1, 0);
+  pivot.position.set(x, SHOULDER_HEIGHT, 0);
   part(pivot, new THREE.SphereGeometry(0.095, 12, 10), m.shirt, 0, -0.02, 0); // 袖子
   part(pivot, new THREE.CapsuleGeometry(0.062, 0.28, 4, 10), m.skin, 0, -0.22, 0);
-  part(pivot, new THREE.SphereGeometry(0.072, 12, 10), m.skin, 0, -0.43, 0.01); // 手掌
+  part(pivot, new THREE.SphereGeometry(HAND_RADIUS, 12, 10), m.skin, 0, -ARM_LENGTH, 0); // 手掌
   body.add(pivot);
   return pivot;
 }

@@ -73,6 +73,20 @@ const SOUNDS = {
     tone({ freq: 170, to: 110, dur: 0.18, type: 'square', vol: 0.2 });
     noise({ dur: 0.12, freq: 1800, vol: 0.3 });
   },
+  // 強力扣球：高頻爆裂＋低音重擊＋往下掃的音
+  power: () => {
+    noise({ dur: 0.3, filter: 'highpass', freq: 1200, vol: 0.5 });
+    tone({ freq: 140, to: 40, dur: 0.35, type: 'sawtooth', vol: 0.25 });
+    tone({ freq: 900, to: 200, dur: 0.25, type: 'square', vol: 0.12 });
+  },
+  // 能量集滿、按 A 開啟：往上爬的音階
+  charge: () => {
+    [523, 784, 1047].forEach((f, i) => tone({ freq: f, dur: 0.12, type: 'square', vol: 0.1, delay: i * 0.06 }));
+  },
+  // 取消強力擊球：往下降的音階
+  uncharge: () => {
+    [1047, 784, 523].forEach((f, i) => tone({ freq: f, dur: 0.1, type: 'square', vol: 0.08, delay: i * 0.05 }));
+  },
   net: () => noise({ dur: 0.3, filter: 'bandpass', freq: 450, vol: 0.25 }),
   land: () => noise({ dur: 0.22, freq: 380, vol: 0.4 }),
   perfect: () => {
@@ -102,6 +116,41 @@ const SOUNDS = {
   ui: () => tone({ freq: 880, dur: 0.05, type: 'triangle', vol: 0.15 }),
 };
 
+// 蓄氣中的低沉嗡嗡聲（持續音，開關要配對）
+let hum = null;
+
+function startHum() {
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.value = 70;
+  const lfo = ctx.createOscillator(); // 音高微微起伏
+  lfo.frequency.value = 5;
+  const depth = ctx.createGain();
+  depth.gain.value = 6;
+  lfo.connect(depth).connect(osc.frequency);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 400;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.07, ctx.currentTime + 0.3);
+  osc.connect(filter).connect(gain).connect(master);
+  osc.start();
+  lfo.start();
+  hum = { osc, lfo, gain };
+}
+
+function stopHum() {
+  const { osc, lfo, gain } = hum;
+  const t = ctx.currentTime;
+  gain.gain.cancelScheduledValues(t);
+  gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), t);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+  osc.stop(t + 0.3);
+  lfo.stop(t + 0.3);
+  hum = null;
+}
+
 export const sound = {
   play(name) {
     if (muted || !init()) return;
@@ -109,8 +158,16 @@ export const sound = {
     SOUNDS[name]();
   },
 
+  // 每幀呼叫都可以：只有狀態改變時才開始或停止
+  setHum(on) {
+    const want = on && !muted;
+    if (want && !hum && init()) startHum();
+    else if (!want && hum) stopHum();
+  },
+
   toggleMute() {
     muted = !muted;
+    if (muted && hum) stopHum();
     return muted;
   },
 };

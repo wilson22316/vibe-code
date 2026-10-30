@@ -58,7 +58,7 @@ export class Positioning {
     }
 
     // 隊友預先到下一次觸球的位置
-    if (type === 'bump') teammate.moveTo(0, side * (HIT.setSpotZ + HIT.standBehind));
+    if (type === 'bump') teammate.moveTo(0, side * (HIT.setSpotZ + HIT.standBehind.set));
     else if (type === 'set') teammate.moveTo(teammate.base.x * 0.9, side * SPIKE_APPROACH_Z);
     else teammate.moveTo(teammate.base.x, teammate.base.z);
 
@@ -79,16 +79,25 @@ export class Positioning {
   }
 }
 
-// 擊球時角色該站的位置：觸球點後方一點，限制在可救球範圍內
+// 擊球時角色該站的位置：觸球點後方一點（距離依擊球類型），限制在可救球範圍內
 export function standSpot(plan) {
   const halfW = COURT.width / 2 + REACH_MARGIN;
   const maxDepth = COURT.length / 2 + REACH_MARGIN;
-  const z = plan.point.z + plan.side * HIT.standBehind;
+  const kind = hitKind(plan);
+  const z = plan.point.z + plan.side * HIT.standBehind[kind];
+  // 扣球面向網子：home 的右手在 +x、away 的右手在 -x，往反方向挪，右肩就在球正後方
+  const shift = kind === 'spike' ? -plan.side * HIT.spikeShift : 0;
   return new THREE.Vector3(
-    clamp(plan.point.x, -halfW, halfW),
+    clamp(plan.point.x + shift, -halfW, halfW),
     0,
     plan.side * clamp(Math.abs(z), 0.4, maxDepth),
   );
+}
+
+// 觸球計畫是哪一種碰法：扣球、舉球（高球）、墊球（低球）
+export function hitKind(plan) {
+  if (plan.type === 'spike') return 'spike';
+  return plan.point.y < 1.5 ? 'bump' : 'set';
 }
 
 export function closestTo(players, point) {

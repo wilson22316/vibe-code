@@ -10,6 +10,25 @@ export class Ball {
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 24, 16), toonMaterial({ map: createBallTexture() }));
     this.mesh.castShadow = true;
     addOutline(this.mesh, { thickness: 2.9, color: new THREE.Color(0x1d2a4a) });
+
+    // 強力球外層的能量光（描邊之後才加，所以不會被描邊）
+    this.aura = new THREE.Mesh(
+      new THREE.SphereGeometry(BALL.radius * 1.7, 20, 14),
+      new THREE.MeshBasicMaterial({
+        color: 0xffb02e,
+        transparent: true,
+        opacity: 0.45,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.aura.visible = false;
+    this.mesh.add(this.aura);
+    this.time = 0;
+  }
+
+  setPower(on) {
+    this.aura.visible = on;
   }
 
   // 同步畫面：位置 + 依移動方向滾轉
@@ -20,6 +39,8 @@ export class Ball {
       _axis.set(this.vel.z, 0, -this.vel.x).normalize();
       this.mesh.rotateOnWorldAxis(_axis, (speed / BALL.radius) * dt * 0.3);
     }
+    this.time += dt;
+    if (this.aura.visible) this.aura.scale.setScalar(1 + 0.15 * Math.sin(this.time * 25)); // 能量光脈動
   }
 }
 
@@ -58,6 +79,22 @@ export function createTimingCue() {
     group.position.set(x, 0.03, z);
     outer.scale.setScalar(1 + THREE.MathUtils.clamp(timeToContact, 0, 1.5) * CUE_SHRINK);
   };
+  return group;
+}
+
+// 扣球瞄準標記：對方場地上的準星（圓環＋十字），方向鍵移動
+export function createSpikeMarker() {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xff3d2e, transparent: true, opacity: 0.85, depthWrite: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 32), mat);
+  ring.rotation.x = -Math.PI / 2;
+  group.add(ring);
+  for (const angle of [0, Math.PI / 2]) {
+    const bar = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.08), mat);
+    bar.rotation.set(-Math.PI / 2, 0, angle);
+    group.add(bar);
+  }
+  group.visible = false;
   return group;
 }
 

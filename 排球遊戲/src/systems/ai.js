@@ -1,4 +1,4 @@
-import { AI_LEVELS, BALL, BLOCK, HIT } from '../config.js';
+import { AI_LEVELS, BALL, BLOCK, HIT, POWER } from '../config.js';
 
 const SPIKE_X = [-2.8, 0, 2.8];
 // 聰明扣球的候選落點（對方半場，depth 為離網距離）
@@ -16,12 +16,19 @@ export function aiLevel() {
   return level;
 }
 
-// 這次觸球的品質；回傳 null 代表漏接。hardIncoming：來球是扣球或完美攔網
-export function aiHitGrade(hardIncoming, incomingGrade) {
-  if (hardIncoming && Math.random() > level.digChance[incomingGrade]) return null;
+// 這次觸球的品質；回傳 null 代表漏接。hardIncoming：來球是扣球或完美攔網；incomingPower：來球是強力球
+export function aiHitGrade(hardIncoming, incomingGrade, incomingPower = false) {
+  const digChance = level.digChance[incomingGrade] * (incomingPower ? POWER.aiDigFactor : 1);
+  if (hardIncoming && Math.random() > digChance) return null;
   const r = Math.random();
   if (r < level.badRate) return 'bad';
   return r < level.badRate + level.perfectRate ? 'perfect' : 'good';
+}
+
+// 能量滿時，這次扣球要不要用強力擊球（困難只在完美扣球時用，才不會浪費）
+export function aiWantsPower(grade) {
+  if (level.powerOnPerfect && grade !== 'perfect') return false;
+  return Math.random() < level.powerChance;
 }
 
 // 對方扣球時要不要攔網；回傳 'perfect' | 'good' | null

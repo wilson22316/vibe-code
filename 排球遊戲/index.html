@@ -13,6 +13,10 @@
         <div class="team home"><span class="serve-dot"></span>我方<b id="score-home">0</b></div>
         <div class="team away"><b id="score-away">0</b>對手<span class="serve-dot"></span></div>
       </div>
+      <div id="energy">
+        <div class="energy" id="energy-home"><div class="cells"></div><div class="energy-label"></div></div>
+        <div class="energy" id="energy-away"><div class="cells"></div><div class="energy-label"></div></div>
+      </div>
       <div id="game-over" hidden>
         <div id="game-over-title"></div>
         <div id="game-over-score"></div>
@@ -29,10 +33,11 @@
         <div id="graphics-row">畫質<button id="graphics-button"></button></div>
         <div class="again">← → 選擇難度　·　空白鍵 開始　·　G 切換畫質</div>
       </div>
+      <div id="impact"></div>
       <div id="result" hidden></div>
       <div id="judge"></div>
       <div id="power-bar" hidden><div id="power-fill"></div></div>
-      <div id="hint">空白鍵：按住蓄力發球／外圈縮到黃圈時擊球、攔網　·　← →：瞄準、扣球方向　·　M：靜音　·　G：畫質　·　拖曳／滾輪：轉動縮放鏡頭　·　C：視角</div>
+      <div id="hint">空白鍵：按住蓄力發球／外圈縮到黃圈時擊球、攔網　·　← →：發球瞄準　·　扣球前 ↑ ↓ ← →：選落點　·　A：強力擊球（能量滿，再按取消）　·　M：靜音　·　G：畫質　·　拖曳／滾輪：轉動縮放鏡頭　·　C：視角</div>
       <div id="mute" hidden>靜音中</div>
       <div id="toast"></div>
       <button id="pause-button" hidden>暫停（Esc）</button>

@@ -1,16 +1,19 @@
 import * as THREE from 'three';
 import { BALL, COURT, HUMAN_SIDES } from '../config.js';
+import { JUMP_PEAK, jumpToReach } from '../entities/player.js';
 import { input } from '../input/keyboard.js';
 import { aiServePower } from './ai.js';
 import { velocityToTarget } from './ballPhysics.js';
 
 const SERVE_X = 1.5;
 const SERVE_BEHIND = 0.8; // 站在底線後多遠
-// 發球員站在球的左後方（以 home 視角），球在右手邊，鏡頭從後面看才不會被身體擋住
+// 發球員站在球的左後方（以 home 視角），球在右手邊，鏡頭從後面看才不會被身體擋住；
+// 球在前方 0.6 公尺，起跳擊球時球在額頭前上方，不會貼到臉
 const SERVER_OFFSET_X = -0.45;
-const SERVER_OFFSET_Z = 0.25;
+const SERVER_OFFSET_Z = 0.6;
 const HOLD_HEIGHT = 1.2;
 const HIT_HEIGHT = 2.6;
+const TOSS_LIFT = 0.5; // 拋球的弧度：球往上拋再落到擊球點
 const CHARGE_TIME = 1.1; // 力道從 0 到滿的秒數，之後來回擺盪
 const AIM_SPEED = 4;
 const AIM_LIMIT = COURT.width / 2 + 1;
@@ -19,7 +22,7 @@ const AIM_LIMIT = COURT.width / 2 + 1;
 const AI_SERVE_DELAY = 1.2;
 const AI_AIM_LIMIT = 3.2;
 
-// 發球：準備 → 蓄力 → 發出（之後交給 Rally）。AI 隊伍則自動發球。
+// 發球：準備 → 蓄力 → 拋球起跳 → 擊球（之後交給 Rally）。AI 隊伍則自動發球。
 export class ServeController {
   // onReset：每球重來時呼叫（讓其他角色回站位），在發球員就位之前執行
   // onServe：球發出後呼叫
@@ -30,6 +33,8 @@ export class ServeController {
     this.onReset = onReset;
     this.onServe = onServe;
     this.spot = new THREE.Vector3();
+    this.tossFrom = new THREE.Vector3();
+    this.contact = new THREE.Vector3();
     this.aimX = 0;
     this.state = 'idle';
   }
@@ -54,6 +59,11 @@ export class ServeController {
   }
 
   update(dt) {
+    if (this.state === 'tossing') {
+      this.updateToss(dt);
+      return;
+    }
+
     if (this.state === 'ai') {
       this.aiTimer -= dt;
       if (this.aiTimer <= 0) this.aiServe();
@@ -94,18 +104,37 @@ export class ServeController {
     this.launch(aiServePower());
   }
 
+  // 放開蓄力（或 AI 決定好）：先把球往上拋、發球員起跳，跳到最高點時剛好擊中球
   launch(power) {
-    // 力道小 → 落點近、弧度低（容易掛網）；力道太大 → 飛出底線
-    const target = new THREE.Vector3(this.aimX, BALL.radius, -this.side * (1 + power * 10.5));
-    const apex = 3 + power * 1.5;
-
-    this.ball.pos.set(this.spot.x, HIT_HEIGHT, this.spot.z);
-    velocityToTarget(this.ball.pos, target, apex, this.ball.vel);
-    this.server.playAction('swing');
-
-    this.state = 'served';
+    this.power = power;
+    this.state = 'tossing';
+    this.tossTime = 0;
+    this.tossFrom.copy(this.ball.pos);
+    this.contact.set(this.spot.x, HIT_HEIGHT, this.spot.z);
+    this.server.playJump(jumpToReach(HIT_HEIGHT, 'serve'));
     this.hud.setPower(null);
     this.aimMarker.visible = false;
+  }
+
+  updateToss(dt) {
+    this.tossTime += dt;
+    const k = Math.min(1, this.tossTime / JUMP_PEAK);
+    this.ball.pos.lerpVectors(this.tossFrom, this.contact, k);
+    this.ball.pos.y += TOSS_LIFT * Math.sin(Math.PI * k);
+    this.server.setReach('serve', this.ball.pos, k); // 球越接近擊球點，手越準確地伸向球
+    if (k >= 1) this.hitServe();
+  }
+
+  hitServe() {
+    // 力道小 → 落點近、弧度低（容易掛網）；力道太大 → 飛出底線
+    const power = this.power;
+    const target = new THREE.Vector3(this.aimX, BALL.radius, -this.side * (1 + power * 10.5));
+    const apex = 3 + power * 1.5;
+    velocityToTarget(this.ball.pos, target, apex, this.ball.vel);
+    this.server.applyReach(); // 碰球這一刻手剛好在球上，揮臂動作從這個姿勢接下去
+    this.server.playAction('spike');
+    this.server.setReach(null);
+    this.state = 'served';
     this.onServe(this.server);
   }
 }
