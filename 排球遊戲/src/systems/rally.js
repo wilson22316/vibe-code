@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BALL, BLOCK, COURT, HIT, HUMAN_SIDES } from '../config.js';
-import { JUMP_TIME } from '../entities/player.js';
+import { JUMP_PEAK } from '../entities/player.js';
 import { input } from '../input/keyboard.js';
 import {
   isInCourt,
@@ -17,6 +17,9 @@ import { closestTo, standSpot } from './positioning.js';
 
 const RESULT_TIME = 2;
 const BLOCK_MAX_NET_DIST = 1; // 攔網員離網超過這距離就攔不到（還沒跑到位）
+const DIVE_RANGE = 0.8; // 撲救比平常多搆得到的距離
+const DIVE_MAX_HEIGHT = 1.5; // 只有低球能撲救（舉球、扣球的高球不行）
+const DOWNGRADE = { perfect: 'good', good: 'bad', bad: 'bad' }; // 撲救的擊球品質降一級
 const SPIKE_TIME = { perfect: 0.5, good: 0.7, bad: 0.6 }; // 扣球飛行秒數，越短越快
 const ERROR = { perfect: 0, good: 0.8, bad: 2.5 }; // 落點隨機誤差（公尺）
 const HARD_BALL_BAD_ERROR = 5;
@@ -207,8 +210,8 @@ export class Rally {
     const plan = this.plan;
     if (!plan) return;
 
-    // 扣球提前起跳，讓跳到最高點時剛好碰球
-    if (plan.type === 'spike' && !plan.jumped && !plan.leave && this.time >= plan.time - JUMP_TIME / 2) {
+    // 扣球提前起跳（含起跳前下蹲），讓跳到最高點時剛好碰球
+    if (plan.type === 'spike' && !plan.jumped && !plan.leave && this.time >= plan.time - JUMP_PEAK) {
       plan.hitter.playJump();
       plan.jumped = true;
     }
@@ -220,27 +223,43 @@ export class Rally {
     if (this.time < plan.time) return;
     if (plan.grade) {
       this.hit();
-    } else if (plan.leave || this.time >= plan.time + HIT.windows.bad) {
-      if (!plan.leave && this.isHuman(plan.side)) this.hud.showJudge('miss');
+    } else if (plan.leave) {
+      this.plan = null;
+    } else if (!this.isHuman(plan.side)) {
+      // AI 漏接（接不起重球）：撲過去但沒碰到
+      plan.hitter.playDive(plan.point.x, plan.point.z);
+      this.plan = null;
+    } else if (this.time >= plan.time + HIT.windows.bad) {
+      this.hud.showJudge('miss');
       this.plan = null;
     }
   }
 
   hit() {
     const plan = this.plan;
-    const { hitter, side, type, grade } = plan;
+    const { hitter, side, type } = plan;
+    let { grade } = plan;
     this.plan = null;
 
+    // 低球差一點搆不到就撲救：救得起來但擊球品質降一級；太遠就撲空
     const stand = standSpot(plan);
-    if (Math.hypot(hitter.pos.x - stand.x, hitter.pos.z - stand.z) > HIT.reach) {
-      if (this.isHuman(side)) this.hud.showJudge('far');
-      return;
+    const dist = Math.hypot(hitter.pos.x - stand.x, hitter.pos.z - stand.z);
+    let dove = false;
+    if (dist > HIT.reach) {
+      const canDive = plan.point.y < DIVE_MAX_HEIGHT;
+      if (canDive) hitter.playDive(stand.x, stand.z);
+      if (!canDive || dist > HIT.reach + DIVE_RANGE) {
+        if (this.isHuman(side)) this.hud.showJudge('far');
+        return;
+      }
+      grade = DOWNGRADE[grade];
+      dove = true;
     }
 
     const contact = this.ball.pos.clone();
-    this.shoot(plan);
-    hitter.playAction(type === 'spike' ? 'swing' : plan.point.y < 1.5 ? 'bump' : 'set');
-    if (this.isHuman(side)) this.hud.showJudge(grade);
+    this.shoot({ ...plan, grade });
+    if (!dove) hitter.playAction(type === 'spike' ? 'swing' : plan.point.y < 1.5 ? 'bump' : 'set');
+    if (this.isHuman(side)) this.hud.showJudge(dove ? 'dive' : grade);
     this.onEvent('hit', { type, grade, human: this.isHuman(side), pos: contact });
 
     if (type === 'spike' && this.tryBlock(plan)) return;

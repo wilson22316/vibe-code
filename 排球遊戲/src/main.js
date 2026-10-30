@@ -83,6 +83,7 @@ const rally = new Rally(ball, teams, hud, {
   onPoint: (side) => {
     match.pointTo(side);
     hud.setScore(match.score, match.servingSide);
+    positioning.celebrate(side);
     sound.play('whistle');
     if (HUMAN_SIDES.includes(side)) {
       sound.play('cheer');

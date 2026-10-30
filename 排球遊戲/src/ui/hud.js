@@ -25,6 +25,7 @@ const JUDGE_TEXT = {
   miss: 'MISS',
   far: '搆不到',
   block: 'BLOCK!',
+  dive: '撲救！',
 };
 
 // 重新觸發 CSS 動畫
@@ -127,7 +128,7 @@ export const hud = {
     replay(result, 'pop');
   },
 
-  // 擊球時機判定：'perfect' | 'good' | 'bad' | 'miss' | 'far' | 'block'
+  // 擊球時機判定：'perfect' | 'good' | 'bad' | 'miss' | 'far' | 'block' | 'dive'
   showJudge(grade) {
     judge.textContent = JUDGE_TEXT[grade];
     judge.dataset.grade = grade;

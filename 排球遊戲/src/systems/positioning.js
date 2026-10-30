@@ -3,6 +3,7 @@ import { BLOCK, COURT, HIT } from '../config.js';
 
 const REACH_MARGIN = 1.5; // 允許跑出場外多遠去救球
 const SPIKE_APPROACH_Z = 3.2; // 等舉球時，攻擊手先退到這裡準備助跑
+const HIGH_FIVE_GAP = 0.7; // 慶祝擊掌時兩人的距離
 
 // 簡化版自動跑位：依 Rally 的下一次觸球計畫（plan）決定每個人該去哪。
 // 第 6 階段 AI 會在這之上做決策。
@@ -16,6 +17,27 @@ export class Positioning {
     for (const p of this.allPlayers()) {
       p.resetTo(p.base.x, p.base.z);
       p.facing = null;
+    }
+  }
+
+  // 得分後：贏的一方跑到一起擊掌慶祝，輸的一方停下來垂頭
+  celebrate(winnerSide) {
+    const winners = winnerSide > 0 ? this.teams.home : this.teams.away;
+    const losers = winnerSide > 0 ? this.teams.away : this.teams.home;
+    const [a, b] = winners;
+    const mx = (a.pos.x + b.pos.x) / 2;
+    const mz = (a.pos.z + b.pos.z) / 2;
+    const dx = b.pos.x - a.pos.x;
+    const dz = b.pos.z - a.pos.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const gap = HIGH_FIVE_GAP / 2;
+    a.moveTo(mx - (dx / d) * gap, mz - (dz / d) * gap);
+    b.moveTo(mx + (dx / d) * gap, mz + (dz / d) * gap);
+    a.celebrate(b);
+    b.celebrate(a);
+    for (const p of losers) {
+      p.moveTo(p.pos.x, p.pos.z);
+      p.mope();
     }
   }
 

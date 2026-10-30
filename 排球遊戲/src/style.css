@@ -326,7 +326,8 @@ body {
 #judge[data-grade='perfect'] {
   color: #ffb800;
 }
-#judge[data-grade='good'] {
+#judge[data-grade='good'],
+#judge[data-grade='dive'] {
   color: #2fbf4f;
 }
 #judge[data-grade='bad'],

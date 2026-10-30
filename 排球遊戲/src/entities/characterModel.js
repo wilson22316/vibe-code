@@ -6,6 +6,7 @@ export const HAIR_STYLES = ['short', 'spiky', 'ponytail', 'bun', 'bob'];
 export const ACCESSORIES = ['none', 'headband', 'sunglasses'];
 
 const OUTLINE_THICKNESS = 3.5;
+export const HIP_HEIGHT = 0.62; // 髖關節高度：腿的支點，也就是腿長
 const HEAD_RADIUS = 0.3;
 const HAIR_RADIUS = 0.318;
 const HAIRLINE_TILT = -0.55; // 頭髮往後蓋：額頭露出來、後腦杓蓋住
@@ -48,10 +49,10 @@ export function buildCharacter(look) {
   buildTorso(body, m, look);
   const armL = buildArm(body, m, 0.3);
   const armR = buildArm(body, m, -0.3);
-  const head = buildHead(body, m, look);
+  const { head, face } = buildHead(body, m, look);
 
   addOutline(root, { thickness: OUTLINE_THICKNESS });
-  root.userData.parts = { legL, legR, armL, armR, body, head };
+  root.userData.parts = { legL, legR, armL, armR, body, head, face };
   return root;
 }
 
@@ -72,7 +73,7 @@ function headDir(az, el) {
 
 function buildLeg(body, m, x) {
   const pivot = new THREE.Group(); // 以髖關節為支點
-  pivot.position.set(x, 0.62, 0);
+  pivot.position.set(x, HIP_HEIGHT, 0);
   part(pivot, new THREE.CapsuleGeometry(0.085, 0.34, 4, 10), m.skin, 0, -0.29, 0);
   const shoe = part(pivot, new THREE.SphereGeometry(0.1, 14, 10), m.shoe, 0, -0.58, 0.035);
   shoe.scale.set(0.85, 0.55, 1.25);
@@ -112,38 +113,51 @@ function buildHead(body, m, look) {
     const ear = part(head, new THREE.SphereGeometry(0.055, 10, 8), m.skin, side * 0.292, -0.03, 0);
     ear.scale.set(0.55, 1, 0.8);
   }
-  buildFace(head, m, look);
+  const face = buildFace(head, m, look);
   HAIR[look.hairStyle](head, m);
   if (look.accessory === 'headband') buildHeadband(head, m);
   else if (look.accessory === 'sunglasses') buildSunglasses(head);
-  return head;
+  return { head, face };
 }
 
+export const EYE_SCALE_Y = 1.3;
+
+// 回傳會動的五官（表情用）；陣列順序都是 [角色右邊, 角色左邊]
 function buildFace(head, m, look) {
   const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const brow = new THREE.MeshBasicMaterial({ color: new THREE.Color(look.hair).multiplyScalar(0.45) });
   const cheek = toonMaterial({ color: CHEEK_COLOR });
+  const face = { eyes: [], highlights: [], happyEyes: [], brows: [] };
 
   for (const side of [-1, 1]) {
     const x = side * 0.1;
     // 眼睛：扁橢圓貼著臉，順著頭的弧度轉
     const eye = part(head, new THREE.SphereGeometry(0.042, 14, 12), m.dark, x, -0.01, 0.282, { small: true });
-    eye.scale.set(0.8, 1.3, 0.45);
+    eye.scale.set(0.8, EYE_SCALE_Y, 0.45);
     eye.rotation.y = side * 0.33;
-    part(head, new THREE.SphereGeometry(0.013, 8, 6), white, x + 0.012, 0.022, 0.3, { small: true }); // 眼睛反光
+    face.eyes.push(eye);
+    face.highlights.push(part(head, new THREE.SphereGeometry(0.013, 8, 6), white, x + 0.012, 0.022, 0.3, { small: true }));
+
+    // 開心時瞇成 ∩ 形的眼睛，平常藏起來
+    const happy = part(head, new THREE.TorusGeometry(0.03, 0.009, 6, 10, Math.PI), m.dark, x, -0.015, 0.288, { small: true });
+    happy.rotation.y = side * 0.33;
+    happy.visible = false;
+    face.happyEyes.push(happy);
 
     // 眉毛：橫放的小膠囊，眉尾略下垂、往後順著頭彎
     const b = part(head, new THREE.CapsuleGeometry(0.011, 0.055, 2, 6), brow, x, 0.075, 0.287, { small: true });
     b.rotation.set(0, side * 0.35, Math.PI / 2 - side * 0.12);
+    face.brows.push(b);
 
     const c = part(head, new THREE.SphereGeometry(0.045, 10, 8), cheek, side * 0.165, -0.085, 0.235, { small: true });
     c.scale.set(1, 0.55, 0.4);
     c.rotation.y = side * 0.6;
   }
 
-  // 嘴巴：半圈圓環翻成 U 形微笑，再順著臉往下傾
-  const mouth = part(head, new THREE.TorusGeometry(0.032, 0.008, 6, 12, Math.PI), m.dark, 0, -0.105, 0.282, { small: true });
-  mouth.rotation.set(0.34, 0, Math.PI);
+  // 嘴巴：半圈圓環翻成 U 形微笑，再順著臉往下傾（不翻就是 ∩ 形的嘴角下垂）
+  face.mouth = part(head, new THREE.TorusGeometry(0.032, 0.008, 6, 12, Math.PI), m.dark, 0, -0.105, 0.282, { small: true });
+  face.mouth.rotation.set(0.34, 0, Math.PI);
+  return face;
 }
 
 // ---- 髮型 ----
