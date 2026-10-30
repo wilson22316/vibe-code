@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { COURT } from '../config.js';
+import { addOutline, toonMaterial } from '../fx/toon.js';
 
 const LINE_WIDTH = 0.08;
 const POST_OFFSET = COURT.postOffset;
@@ -14,7 +15,7 @@ export function createCourt() {
 
 function createLines() {
   const group = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color: 0x2f7bd9, roughness: 0.8 });
+  const material = toonMaterial({ color: 0x2f7bd9 });
   const halfL = COURT.length / 2;
   const halfW = COURT.width / 2;
 
@@ -41,8 +42,8 @@ function createNet() {
 
   // 網柱與防護墊
   const postHeight = top + 0.2;
-  const postMaterial = new THREE.MeshStandardMaterial({ color: 0xf4f4f4, roughness: 0.4, metalness: 0.3 });
-  const padMaterial = new THREE.MeshStandardMaterial({ color: 0xff6b3d, roughness: 0.7, flatShading: true });
+  const postMaterial = toonMaterial({ color: 0xf4f4f4 });
+  const padMaterial = toonMaterial({ color: 0xff6b3d });
   for (const x of [-postX, postX]) {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, postHeight, 12), postMaterial);
     post.position.set(x, postHeight / 2, 0);
@@ -52,6 +53,8 @@ function createNet() {
     pad.position.set(x, 0.8, 0);
     pad.castShadow = true;
 
+    addOutline(post, { thickness: 2.9 });
+    addOutline(pad, { thickness: 2.9 });
     group.add(post, pad);
   }
 
@@ -71,7 +74,7 @@ function createNet() {
   group.add(netMesh);
 
   // 上下網帶
-  const bandMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
+  const bandMaterial = toonMaterial({ color: 0xffffff });
   const topBand = new THREE.Mesh(new THREE.BoxGeometry(netWidth, 0.07, 0.02), bandMaterial);
   topBand.position.set(0, top - 0.035, 0);
   topBand.castShadow = true;
@@ -91,8 +94,8 @@ function createAntenna(x, bottomY) {
   const group = new THREE.Group();
   const segment = 0.2;
   const count = 9; // 總長 1.8m，高出網頂 0.8m
-  const red = new THREE.MeshStandardMaterial({ color: 0xe8333a });
-  const white = new THREE.MeshStandardMaterial({ color: 0xffffff });
+  const red = toonMaterial({ color: 0xe8333a });
+  const white = toonMaterial({ color: 0xffffff });
   const geometry = new THREE.CylinderGeometry(0.02, 0.02, segment, 8);
   for (let i = 0; i < count; i++) {
     const piece = new THREE.Mesh(geometry, i % 2 === 0 ? red : white);

@@ -8,6 +8,7 @@ import { input } from './input/keyboard.js';
 import { createCamera } from './scene/camera.js';
 import { createCourt } from './scene/court.js';
 import { createEnvironment } from './scene/environment.js';
+import { Graphics } from './scene/graphics.js';
 import { createLights } from './scene/lights.js';
 import { predictLanding } from './systems/ballPhysics.js';
 import { aiLevel, setAiLevel } from './systems/ai.js';
@@ -20,17 +21,18 @@ import { hud } from './ui/hud.js';
 const PHYSICS_STEP = 1 / 120; // 固定步長，球路才不會受幀率影響
 const MAX_FRAME = 0.1; // 分頁切回來時避免一次補太多步
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// 抗鋸齒交給後製的 FXAA（見 postprocessing.js），畫布本身不用開；解析度倍率由畫質設定決定
+const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = THREE.NeutralToneMapping; // 比 ACES 更保留鮮豔色塊，適合卡通風
 document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.add(createEnvironment(scene), createCourt(), createLights());
 
 const camera = createCamera();
+const graphics = new Graphics(renderer, scene, camera);
 
 const ball = new Ball();
 const landingMarker = createLandingMarker();
@@ -155,8 +157,17 @@ openMenu();
 function resize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  graphics.resize();
 }
+
+function toggleGraphics() {
+  graphics.toggle();
+  hud.setGraphicsLabel(graphics.label);
+  hud.toast(`畫質：${graphics.label}`);
+  sound.play('ui');
+}
+hud.setGraphicsLabel(graphics.label);
+hud.onGraphicsClick(toggleGraphics);
 window.addEventListener('resize', resize);
 resize();
 
@@ -169,6 +180,7 @@ renderer.setAnimationLoop((time) => {
   const simDt = dt * effects.timeScale; // 慢動作時球與角色變慢
 
   if (input.wasPressed('mute')) hud.setMuted(sound.toggleMute());
+  if (input.wasPressed('graphics')) toggleGraphics();
 
   if (inMenu) {
     updateMenu();
@@ -204,5 +216,5 @@ renderer.setAnimationLoop((time) => {
   ball.syncMesh(simDt);
   effects.update(dt);
   input.endFrame();
-  renderer.render(scene, camera);
+  graphics.render();
 });

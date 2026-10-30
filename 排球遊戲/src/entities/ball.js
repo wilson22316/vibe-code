@@ -1,16 +1,15 @@
 import * as THREE from 'three';
 import { BALL } from '../config.js';
+import { addOutline, toonMaterial } from '../fx/toon.js';
 
 export class Ball {
   constructor() {
     this.pos = new THREE.Vector3();
     this.vel = new THREE.Vector3();
 
-    this.mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(BALL.radius, 24, 16),
-      new THREE.MeshStandardMaterial({ map: createBallTexture(), roughness: 0.55 }),
-    );
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 24, 16), toonMaterial({ map: createBallTexture() }));
     this.mesh.castShadow = true;
+    addOutline(this.mesh, { thickness: 2.9, color: new THREE.Color(0x1d2a4a) });
   }
 
   // 同步畫面：位置 + 依移動方向滾轉

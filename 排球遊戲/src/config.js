@@ -53,6 +53,12 @@ export const AI_LEVELS = {
   },
 };
 
+// 畫質設定（選單或 G 鍵切換）。實測內顯（Intel UHD 630，1080p）：畫質優先約 21ms/幀、效能優先約 13ms/幀
+export const GRAPHICS = {
+  quality: { label: '畫質優先', maxPixelRatio: 2, bloom: true, grade: true, shadowMapSize: 2048 },
+  performance: { label: '效能優先', maxPixelRatio: 1, bloom: false, grade: false, shadowMapSize: 1024 },
+};
+
 export const BALL = {
   radius: 0.15, // 實際約 0.105，放大一些讓畫面好讀
   gravity: 7, // 比真實 9.81 小，球飛得比較飄、好反應

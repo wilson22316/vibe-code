@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { COURT } from '../config.js';
+import { addOutline, toonMaterial } from '../fx/toon.js';
 
 const SKY_TOP = 0x3d9be9;
 const SKY_HORIZON = 0xcdeeff;
@@ -76,10 +77,7 @@ function createSand() {
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.computeVertexNormals();
 
-  const sand = new THREE.Mesh(
-    geometry,
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }),
-  );
+  const sand = new THREE.Mesh(geometry, toonMaterial({ vertexColors: true }));
   sand.receiveShadow = true;
   return sand;
 }
@@ -87,7 +85,7 @@ function createSand() {
 function createSea() {
   const sea = new THREE.Mesh(
     new THREE.PlaneGeometry(800, 400),
-    new THREE.MeshStandardMaterial({ color: 0x2bb5d6, roughness: 0.25, metalness: 0.1 }),
+    toonMaterial({ color: 0x2bb5d6 }),
   );
   sea.rotation.x = -Math.PI / 2;
   sea.position.set(0, -0.35, SHORE_Z - 196);
@@ -113,8 +111,8 @@ function createPalmTrees() {
 
 function createPalmTree(height) {
   const tree = new THREE.Group();
-  const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x9a6b43, roughness: 0.9, flatShading: true });
-  const leafMaterial = new THREE.MeshStandardMaterial({ color: 0x3fae55, roughness: 0.8, flatShading: true, side: THREE.DoubleSide });
+  const trunkMaterial = toonMaterial({ color: 0x9a6b43 });
+  const leafMaterial = toonMaterial({ color: 0x3fae55, side: THREE.DoubleSide });
 
   // 樹幹：一節一節往同一側微彎
   const segments = 6;
@@ -145,5 +143,5 @@ function createPalmTree(height) {
     tree.add(leaf);
   }
 
-  return tree;
+  return addOutline(tree, { thickness: 2.6 });
 }

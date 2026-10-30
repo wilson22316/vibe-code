@@ -11,6 +11,8 @@ const gameOverTitle = document.getElementById('game-over-title');
 const gameOverScore = document.getElementById('game-over-score');
 const menu = document.getElementById('menu');
 const muteBadge = document.getElementById('mute');
+const graphicsButton = document.getElementById('graphics-button');
+const toastEl = document.getElementById('toast');
 const levelButtons = [...document.querySelectorAll('#levels button')];
 
 const JUDGE_TEXT = {
@@ -38,6 +40,23 @@ export const hud = {
 
   setMuted(muted) {
     muteBadge.hidden = !muted;
+  },
+
+  setGraphicsLabel(label) {
+    graphicsButton.textContent = label;
+  },
+
+  onGraphicsClick(callback) {
+    graphicsButton.addEventListener('click', () => {
+      graphicsButton.blur(); // 不然之後按空白鍵會再觸發這顆按鈕
+      callback();
+    });
+  },
+
+  // 右上角短暫提示
+  toast(text) {
+    toastEl.textContent = text;
+    replay(toastEl, 'show');
   },
 
   // 滑鼠點選難度

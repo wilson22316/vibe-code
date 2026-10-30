@@ -172,6 +172,50 @@ body {
   font-size: 14px;
 }
 
+#toast {
+  position: absolute;
+  top: 56px;
+  right: 16px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.7);
+  font-size: 15px;
+  opacity: 0;
+}
+
+#toast.show {
+  animation: toast 1.6s ease-out forwards;
+}
+
+@keyframes toast {
+  0%,
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+#graphics-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 18px;
+}
+
+#graphics-button {
+  padding: 6px 16px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.55);
+  color: #fff;
+  font: inherit;
+  font-size: 17px;
+  cursor: pointer;
+}
+
 #power-bar {
   position: absolute;
   bottom: 64px;

@@ -26,13 +26,15 @@
           <button data-level="normal">普通</button>
           <button data-level="hard">困難</button>
         </div>
-        <div class="again">← → 選擇　·　空白鍵 開始</div>
+        <div id="graphics-row">畫質<button id="graphics-button"></button></div>
+        <div class="again">← → 選擇難度　·　空白鍵 開始　·　G 切換畫質</div>
       </div>
       <div id="result" hidden></div>
       <div id="judge"></div>
       <div id="power-bar" hidden><div id="power-fill"></div></div>
-      <div id="hint">空白鍵：按住蓄力發球／外圈縮到黃圈時擊球、攔網　·　← →：瞄準、扣球方向　·　M：靜音</div>
+      <div id="hint">空白鍵：按住蓄力發球／外圈縮到黃圈時擊球、攔網　·　← →：瞄準、扣球方向　·　M：靜音　·　G：畫質</div>
       <div id="mute" hidden>靜音中</div>
+      <div id="toast"></div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

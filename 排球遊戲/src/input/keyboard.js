@@ -8,6 +8,7 @@ const BINDINGS = {
   ArrowRight: 'right',
   KeyD: 'right',
   KeyM: 'mute',
+  KeyG: 'graphics',
 };
 
 const down = new Set();

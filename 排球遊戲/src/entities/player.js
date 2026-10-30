@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PLAYER } from '../config.js';
+import { addOutline, toonMaterial } from '../fx/toon.js';
 
 const ARRIVE_RADIUS = 0.05;
 const SLOW_RADIUS = 0.8; // 接近目標時減速，避免來回抖動
@@ -132,7 +133,7 @@ function buildModel({ shirt, skin, hair }) {
   const body = new THREE.Group(); // 腳以上全部掛在這裡，方便做彈跳
   root.add(body);
 
-  const mat = (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+  const mat = (color) => toonMaterial({ color });
   const skinMat = mat(skin);
   const shirtMat = mat(shirt);
   const shortsMat = mat(0x2a3550);
@@ -185,9 +186,12 @@ function buildModel({ shirt, skin, hair }) {
   for (const x of [-0.1, 0.1]) {
     const eye = add(head, new THREE.SphereGeometry(0.035, 8, 8), dark, x, 0.0, 0.275);
     eye.scale.y = 1.6;
-    add(head, new THREE.SphereGeometry(0.04, 8, 8), mat(0xff9a8a), x * 1.6, -0.08, 0.24).scale.set(1, 0.6, 0.4);
+    const cheek = add(head, new THREE.SphereGeometry(0.04, 8, 8), mat(0xff9a8a), x * 1.6, -0.08, 0.24);
+    cheek.scale.set(1, 0.6, 0.4);
+    eye.userData.noOutline = cheek.userData.noOutline = true; // 五官太小，描邊會糊成一團
   }
 
+  addOutline(root, { thickness: 3.5 });
   root.userData.parts = { legL, legR, armL, armR, body };
   return root;
 }
