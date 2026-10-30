@@ -9,15 +9,12 @@ const teamAway = document.querySelector('#scoreboard .away');
 const gameOver = document.getElementById('game-over');
 const gameOverTitle = document.getElementById('game-over-title');
 const gameOverScore = document.getElementById('game-over-score');
-const menu = document.getElementById('menu');
 const muteBadge = document.getElementById('mute');
-const graphicsButton = document.getElementById('graphics-button');
 const toastEl = document.getElementById('toast');
 const impactEl = document.getElementById('impact');
 const pauseEl = document.getElementById('pause');
 const pauseOptions = [...document.querySelectorAll('#pause-options button')];
 const pauseButton = document.getElementById('pause-button');
-const levelButtons = [...document.querySelectorAll('#levels button')];
 
 const JUDGE_TEXT = {
   perfect: 'PERFECT!',
@@ -38,19 +35,13 @@ const energyEls = {
 let energyKey = '';
 
 // 重新觸發 CSS 動畫
-function replay(el, className) {
+export function replay(el, className) {
   el.classList.remove(className);
   void el.offsetWidth;
   el.classList.add(className);
 }
 
 export const hud = {
-  // 難度選單：selected 為 'easy' | 'normal' | 'hard'；傳 null 隱藏
-  showMenu(selected) {
-    menu.hidden = selected === null;
-    for (const b of levelButtons) b.classList.toggle('selected', b.dataset.level === selected);
-  },
-
   // energy、armed：{ 1: 我方, -1: 對手 }；只有數值變了才更新畫面
   setEnergy(energy, armed, max) {
     const key = `${energy[1]},${energy[-1]},${armed[1]},${armed[-1]}`;
@@ -72,17 +63,6 @@ export const hud = {
 
   setMuted(muted) {
     muteBadge.hidden = !muted;
-  },
-
-  setGraphicsLabel(label) {
-    graphicsButton.textContent = label;
-  },
-
-  onGraphicsClick(callback) {
-    graphicsButton.addEventListener('click', () => {
-      graphicsButton.blur(); // 不然之後按空白鍵會再觸發這顆按鈕
-      callback();
-    });
   },
 
   // 暫停畫面：selected 為選中的選項索引；傳 null 隱藏
@@ -122,11 +102,6 @@ export const hud = {
   toast(text) {
     toastEl.textContent = text;
     replay(toastEl, 'show');
-  },
-
-  // 滑鼠點選難度
-  onLevelClick(callback) {
-    for (const b of levelButtons) b.addEventListener('click', () => callback(b.dataset.level));
   },
 
   // score：{ 1: home 分數, -1: away 分數 }；servingSide：1 或 -1

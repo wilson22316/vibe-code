@@ -3,6 +3,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CAMERA_PRESETS } from './camera.js';
 
 const TRANSITION_TIME = 0.6; // 切換預設視角的過場秒數
+// 主畫面：從球場斜上方慢慢繞場（autoRotateSpeed 1 約 60 秒一圈）
+const ORBIT_VIEW = { position: [13, 6, 13], target: [0, 1, 0] };
+const ORBIT_SPEED = 1;
 
 // 鏡頭控制：滑鼠拖曳 360 度旋轉、滾輪往游標方向縮放、切換預設視角，最後疊上畫面震動
 export class CameraRig {
@@ -19,11 +22,26 @@ export class CameraRig {
       minPolarAngle: 0.05,
       maxPolarAngle: 1.45, // 不讓鏡頭鑽到沙子底下
     });
+    this.controls.autoRotateSpeed = ORBIT_SPEED;
     this.presetIndex = 0;
     this.transition = null;
     this.cinematic = null; // 衝擊特寫：暫時接管鏡頭
+    this.orbiting = false; // 主畫面繞場中
     this.shake = new THREE.Vector3(); // 目前疊在鏡頭上的震動
     this.applyPreset(0, true);
+  }
+
+  // 主畫面：鏡頭移到球場斜上方後慢慢繞場（拖曳轉過之後也會繼續繞）
+  startOrbit(instant = false) {
+    this.orbiting = true;
+    this.moveTo(new THREE.Vector3(...ORBIT_VIEW.position), new THREE.Vector3(...ORBIT_VIEW.target), instant);
+  }
+
+  // 離開主畫面：停止繞場，回到原本選的預設視角
+  stopOrbit() {
+    this.orbiting = false;
+    this.controls.autoRotate = false;
+    this.applyPreset(this.presetIndex);
   }
 
   // 衝擊特寫：鏡頭直接切到 position 看著 target，停 hold 秒，再用 back 秒拉回原本的視角
@@ -54,8 +72,11 @@ export class CameraRig {
   applyPreset(index, instant = false) {
     this.presetIndex = index;
     const { position, target } = CAMERA_PRESETS[index];
-    const toPos = new THREE.Vector3(...position);
-    const toTarget = new THREE.Vector3(...target);
+    this.moveTo(new THREE.Vector3(...position), new THREE.Vector3(...target), instant);
+  }
+
+  // 鏡頭平滑移到 toPos、看著 toTarget（instant：直接跳過去）
+  moveTo(toPos, toTarget, instant = false) {
     if (instant) {
       this.camera.position.copy(toPos);
       this.controls.target.copy(toTarget);
@@ -91,7 +112,8 @@ export class CameraRig {
       this.controls.target.lerpVectors(tr.fromTarget, tr.toTarget, k);
       if (tr.t >= 1) this.transition = null;
     }
-    this.controls.update();
+    this.controls.autoRotate = this.orbiting && !this.transition; // 移到定位後才開始繞
+    this.controls.update(dt); // 傳 dt：繞場速度不受幀率影響
 
     this.shake.copy(shakeOffset);
     this.camera.position.add(this.shake);

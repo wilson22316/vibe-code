@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>沙灘排球</title>
+    <title>ビーチバレー！沙灘排球</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -20,18 +20,51 @@
       <div id="game-over" hidden>
         <div id="game-over-title"></div>
         <div id="game-over-score"></div>
-        <div class="again">按 空白鍵 回到選單</div>
+        <div class="again">按 空白鍵 回到主畫面</div>
       </div>
+      <!-- 主畫面：每個 .menu-screen 是一頁，按鈕的 data-* 用法見 src/ui/menu.js -->
       <div id="menu" hidden>
-        <div id="menu-title">沙灘排球</div>
-        <div id="menu-sub">選擇對手難度</div>
-        <div id="levels">
-          <button data-level="easy">簡單</button>
-          <button data-level="normal">普通</button>
-          <button data-level="hard">困難</button>
+        <div id="logo">
+          <div id="logo-title"><span style="--i: 0; --c: #ff6b4a">ビ</span><span style="--i: 1; --c: #ff9f1c">ー</span><span style="--i: 2; --c: #ffc93c">チ</span><span style="--i: 3; --c: #2fbf4f">バ</span><span style="--i: 4; --c: #1fa2e8">レ</span><span style="--i: 5; --c: #5b6cff">ー</span><span style="--i: 6; --c: #ff5d8f">！</span><i class="logo-ball"></i></div>
+          <div id="logo-sub">沙灘排球</div>
         </div>
-        <div id="graphics-row">畫質<button id="graphics-button"></button></div>
-        <div class="again">← → 選擇難度　·　空白鍵 開始　·　G 切換畫質</div>
+        <div class="menu-screen" data-screen="main" data-axis="y" data-keys="↑ ↓ 選擇　·　空白鍵 確定">
+          <button data-goto="level">開始比賽</button>
+          <button data-soon>練習模式<small>即將推出</small></button>
+          <button data-soon>操作教學<small>即將推出</small></button>
+          <button data-soon>角色自訂<small>即將推出</small></button>
+          <button data-goto="settings">設定</button>
+          <button data-soon>多人連線<small>即將推出</small></button>
+        </div>
+        <div class="menu-screen" data-screen="level" data-axis="x" data-back="main" data-default="1" data-keys="← → 選擇難度　·　空白鍵 開始　·　Esc 返回" hidden>
+          <div class="screen-title">選擇對手難度</div>
+          <div class="row">
+            <button data-action="level" data-value="easy">簡單</button>
+            <button data-action="level" data-value="normal">普通</button>
+            <button data-action="level" data-value="hard">困難</button>
+          </div>
+          <button class="back" data-back>‹ 返回</button>
+        </div>
+        <div class="menu-screen" data-screen="settings" data-axis="y" data-back="main" data-keys="↑ ↓ 選擇　·　← → 或空白鍵 切換　·　Esc 返回" hidden>
+          <div class="screen-title">設定</div>
+          <button class="setting" data-action="graphics" data-adjust>畫質<b data-current></b></button>
+          <button class="setting" data-action="sfx" data-adjust>音效<b data-current></b></button>
+          <button class="setting" data-action="music" data-adjust>背景音樂<b data-current></b></button>
+          <div class="keys">
+            <div class="keys-title">按鍵說明</div>
+            <dl>
+              <dt>空白鍵</dt><dd>發球（按住蓄力、放開發球）、擊球、攔網</dd>
+              <dt>← →</dt><dd>發球瞄準</dd>
+              <dt>↑ ↓ ← →</dt><dd>扣球前選落點</dd>
+              <dt>A</dt><dd>強力擊球（能量滿時；再按一次取消）</dd>
+              <dt>Esc／P</dt><dd>暫停（選單中返回）</dd>
+              <dt>C</dt><dd>切換視角；滑鼠拖曳轉動、滾輪縮放</dd>
+              <dt>M／G</dt><dd>靜音／切換畫質</dd>
+            </dl>
+          </div>
+          <button class="back" data-back>‹ 返回</button>
+        </div>
+        <div id="menu-keys" class="again"></div>
       </div>
       <div id="impact"></div>
       <div id="result" hidden></div>

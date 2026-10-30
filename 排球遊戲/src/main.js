@@ -17,10 +17,15 @@ import { Match } from './systems/match.js';
 import { Positioning } from './systems/positioning.js';
 import { Rally } from './systems/rally.js';
 import { createAimMarker, ServeController } from './systems/serve.js';
+import { WarmUp } from './systems/warmup.js';
 import { hud } from './ui/hud.js';
+import { Menu } from './ui/menu.js';
 
 const PHYSICS_STEP = 1 / 120; // 固定步長，球路才不會受幀率影響
 const MAX_FRAME = 0.1; // 分頁切回來時避免一次補太多步
+// 視窗夠寬時主畫面選單靠左，球場往右挪這個比例的畫面寬（斷點跟 style.css 一致）
+const MENU_SIDE_MIN_WIDTH = 900;
+const MENU_SHIFT = 0.13;
 
 // 抗鋸齒交給後製的 FXAA（見 postprocessing.js），畫布本身不用開；解析度倍率由畫質設定決定
 const renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -40,7 +45,9 @@ const landingMarker = createLandingMarker();
 const timingCue = createTimingCue();
 const aimMarker = createAimMarker();
 const spikeMarker = createSpikeMarker();
-scene.add(ball.mesh, landingMarker, timingCue, aimMarker, spikeMarker);
+const warmBall = new Ball(); // 主畫面對手那組熱身用的第二顆球
+warmBall.mesh.visible = false;
+scene.add(ball.mesh, warmBall.mesh, landingMarker, timingCue, aimMarker, spikeMarker);
 
 const teams = {};
 for (const [name, team] of Object.entries(TEAMS)) {
@@ -49,6 +56,10 @@ for (const [name, team] of Object.entries(TEAMS)) {
 }
 const positioning = new Positioning(teams);
 const players = positioning.allPlayers();
+const warmUp = new WarmUp([
+  { players: teams.home, ball },
+  { players: teams.away, ball: warmBall },
+]);
 
 const match = new Match();
 const effects = new Effects(scene);
@@ -125,22 +136,47 @@ const serve = new ServeController(ball, hud, aimMarker, {
 });
 const landing = new THREE.Vector3();
 
-const LEVELS = ['easy', 'normal', 'hard'];
-let levelIndex = 1;
+let level = 'normal';
 let inMenu = true;
 
+const onOff = (on) => (on ? '開' : '關');
+const menu = new Menu({
+  level: (name) => startMatch(name),
+  graphics: () => toggleGraphics(),
+  sfx: () => {
+    const on = sound.toggleSfx();
+    menu.setValue('sfx', onOff(on));
+    if (on) sound.play('ui'); // 剛打開時讓玩家聽到
+  },
+  music: () => menu.setValue('music', onOff(sound.toggleMusic())),
+});
+menu.setValue('sfx', onOff(sound.sfxEnabled));
+menu.setValue('music', onOff(sound.musicEnabled));
+
+// 主畫面：兩隊在場上熱身互傳球，鏡頭慢慢繞場
 function openMenu() {
   inMenu = true;
   hud.showGameOver(null);
+  hud.showResult(null);
+  hud.setPower(null);
   hud.setPauseButtonVisible(false);
-  hud.showMenu(LEVELS[levelIndex]);
+  aimMarker.visible = false;
+  warmBall.mesh.visible = true;
+  warmUp.start();
+  rig.startOrbit();
+  menu.open();
 }
 
-function startMatch() {
+// name：難度；不傳就沿用上一局（暫停選單的重新開局）
+function startMatch(name = level) {
+  level = name;
   inMenu = false;
-  hud.showMenu(null);
+  menu.close();
+  warmUp.stop();
+  warmBall.mesh.visible = false;
+  rig.stopOrbit();
   hud.setPauseButtonVisible(true);
-  setAiLevel(LEVELS[levelIndex]);
+  setAiLevel(level);
   for (const p of teams.away) p.speedScale = aiLevel().speed;
   match.reset();
   rally.resetEnergy();
@@ -159,32 +195,6 @@ function togglePower() {
   } else {
     hud.toast('能量還沒集滿');
   }
-}
-
-function updateMenu() {
-  const dir = (input.wasPressed('right') ? 1 : 0) - (input.wasPressed('left') ? 1 : 0);
-  if (dir !== 0) {
-    levelIndex = (levelIndex + dir + LEVELS.length) % LEVELS.length;
-    hud.showMenu(LEVELS[levelIndex]);
-    sound.play('ui');
-  }
-  if (input.wasPressed('action')) {
-    sound.play('ui');
-    startMatch();
-  }
-}
-
-hud.onLevelClick((level) => {
-  levelIndex = LEVELS.indexOf(level);
-  sound.play('ui');
-  startMatch();
-});
-
-// 選單背後擺好發球前的場景
-function setupMenuScene() {
-  match.reset();
-  hud.setScore(match.score, match.servingSide);
-  serve.reset(match.server(teams));
 }
 
 // 暫停選單：繼續、重新開局（同難度）、回到主畫面
@@ -226,7 +236,6 @@ function choosePause(option) {
     startMatch();
   } else if (option === 'menu') {
     abortRally();
-    setupMenuScene();
     openMenu();
   }
 }
@@ -245,7 +254,6 @@ function updatePause() {
 hud.onPauseOption(choosePause);
 hud.onPauseButton(pause);
 
-setupMenuScene();
 openMenu();
 
 function resize() {
@@ -254,14 +262,24 @@ function resize() {
   graphics.resize();
 }
 
+// 主畫面選單在左邊時，畫面往右挪讓球場露出來（切換時平滑移動）
+let viewShift = 0;
+function updateViewShift(dt) {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const want = inMenu && w >= MENU_SIDE_MIN_WIDTH ? w * MENU_SHIFT : 0;
+  viewShift = THREE.MathUtils.damp(viewShift, want, 5, dt);
+  if (viewShift > 0.5) camera.setViewOffset(w, h, -viewShift, 0, w, h);
+  else if (camera.view?.enabled) camera.clearViewOffset();
+}
+
 function toggleGraphics() {
   graphics.toggle();
-  hud.setGraphicsLabel(graphics.label);
+  menu.setValue('graphics', graphics.label);
   hud.toast(`畫質：${graphics.label}`);
   sound.play('ui');
 }
-hud.setGraphicsLabel(graphics.label);
-hud.onGraphicsClick(toggleGraphics);
+menu.setValue('graphics', graphics.label);
 window.addEventListener('resize', resize);
 resize();
 
@@ -275,7 +293,7 @@ renderer.setAnimationLoop((time) => {
 
   if (input.wasPressed('mute')) hud.setMuted(sound.toggleMute());
   if (input.wasPressed('graphics')) toggleGraphics();
-  if (input.wasPressed('camera')) {
+  if (input.wasPressed('camera') && !inMenu) {
     rig.nextPreset();
     hud.toast(`視角：${rig.presetName}`);
     sound.play('ui');
@@ -284,7 +302,7 @@ renderer.setAnimationLoop((time) => {
   if (paused) {
     updatePause();
   } else if (inMenu) {
-    updateMenu();
+    menu.update();
   } else if (input.wasPressed('pause') && canPause()) {
     pause();
   } else {
@@ -297,6 +315,8 @@ renderer.setAnimationLoop((time) => {
 
   // 暫停時整個場面定格（球、角色、粒子、慢動作都不動），鏡頭仍可轉動查看
   sound.setHum(!inMenu && !paused && rally.armed[HUMAN_SIDES[0]]); // 蓄氣中的嗡嗡聲
+  sound.setMusic(inMenu); // 背景音樂只在主畫面播
+  updateViewShift(dt);
 
   if (paused) {
     rig.update(dt, effects.shakeOffset, true);
@@ -329,7 +349,8 @@ renderer.setAnimationLoop((time) => {
   spikeMarker.visible = spikeTarget !== null;
   if (spikeTarget) spikeMarker.position.set(spikeTarget.x, 0.04, spikeTarget.z);
 
-  positioning.update(plan, ball.pos, live, rally.time);
+  if (inMenu) warmUp.update(simDt);
+  else positioning.update(plan, ball.pos, live, rally.time);
   const animDt = effects.frozen ? 0 : simDt; // 這一幀中途開始定格的話，角色和球也停在碰球那一刻
   for (const p of players) {
     // 強力擊球的氣場（主畫面不顯示）
@@ -342,6 +363,7 @@ renderer.setAnimationLoop((time) => {
   ball.setPower(rally.ballState === 'power');
   if (live && rally.ballState && !effects.frozen) effects.trail(ball.pos, rally.ballState === 'power');
   ball.syncMesh(animDt);
+  if (inMenu) warmBall.syncMesh(animDt);
   hud.setEnergy(rally.energy, rally.armed, POWER.maxEnergy);
   effects.update(dt);
   rig.update(dt, effects.shakeOffset);
