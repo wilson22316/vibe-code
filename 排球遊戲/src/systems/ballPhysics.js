@@ -80,6 +80,25 @@ export function predictCrossing(state, height, out, dt = 1 / 120, maxSteps = 120
   return null;
 }
 
+// 球穿越網子平面（z = 0）時的位置，不考慮撞網；先落地就回傳 null。攔網判定用。
+export function predictNetCrossing(state, out, dt = 1 / 120, maxSteps = 600) {
+  const pos = state.pos.clone();
+  const vel = state.vel.clone();
+  for (let i = 0; i < maxSteps; i++) {
+    const prevX = pos.x;
+    const prevY = pos.y;
+    const prevZ = pos.z;
+    vel.y -= BALL.gravity * dt;
+    pos.addScaledVector(vel, dt);
+    if (pos.y <= BALL.radius) return null;
+    if (Math.sign(prevZ) !== Math.sign(pos.z)) {
+      const t = prevZ / (prevZ - pos.z);
+      return out.set(prevX + (pos.x - prevX) * t, prevY + (pos.y - prevY) * t, 0);
+    }
+  }
+  return null;
+}
+
 // 這條球路在落地前會不會撞網
 export function willHitNet(state, dt = 1 / 120, maxSteps = 1200) {
   const sim = { pos: state.pos.clone(), vel: state.vel.clone() };

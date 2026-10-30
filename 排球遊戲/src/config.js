@@ -23,6 +23,13 @@ export const HIT = {
   spikeSpotZ: 1.6, // 舉球送到離網多遠讓隊友扣
 };
 
+export const BLOCK = {
+  netGap: 0.45, // 攔網員站在離網多遠
+  lead: 0.15, // 理想起跳時間比對方扣球早多少秒（跳到最高點時球剛好到網）
+  reach: 3.3, // 跳起來手能碰到的高度
+  width: { perfect: 0.55, good: 0.3 }, // 攔網員左右能蓋住的範圍
+};
+
 export const PLAYER = {
   speed: 5.5, // 最高跑速（公尺/秒）
   turnSpeed: 12, // 轉身速度

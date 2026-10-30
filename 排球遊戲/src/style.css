@@ -96,6 +96,9 @@ body {
 #judge[data-grade='miss'] {
   color: #ff5a3d;
 }
+#judge[data-grade='block'] {
+  color: #7a4dff;
+}
 
 #judge.flash {
   animation: flash 0.8s ease-out forwards;

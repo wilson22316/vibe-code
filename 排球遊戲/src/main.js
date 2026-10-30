@@ -78,11 +78,12 @@ renderer.setAnimationLoop((time) => {
     accumulator = 0;
   }
 
-  // 輪到玩家擊球時顯示時機提示，其他時候顯示落點
+  // 輪到玩家擊球或攔網時顯示時機提示，其他時候顯示落點
   const live = rally.state === 'live';
   const plan = rally.plan;
-  timingCue.visible = live && plan !== null && rally.isHuman(plan.side);
-  if (timingCue.visible) timingCue.userData.update(plan.point.x, plan.point.z, plan.time - rally.time);
+  const cue = rally.getCue();
+  timingCue.visible = cue !== null;
+  if (cue) timingCue.userData.update(cue.x, cue.z, cue.timeLeft);
   landingMarker.visible = live && !timingCue.visible && predictLanding(ball, landing) !== null;
   if (landingMarker.visible) landingMarker.position.set(landing.x, 0.03, landing.z);
 

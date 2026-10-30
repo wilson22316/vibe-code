@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COURT, HIT } from '../config.js';
+import { BLOCK, COURT, HIT } from '../config.js';
 
 const REACH_MARGIN = 1.5; // 允許跑出場外多遠去救球
 const SPIKE_APPROACH_Z = 3.2; // 等舉球時，攻擊手先退到這裡準備助跑
@@ -39,9 +39,16 @@ export class Positioning {
     else if (type === 'set') teammate.moveTo(teammate.base.x * 0.9, side * SPIKE_APPROACH_Z);
     else teammate.moveTo(teammate.base.x, teammate.base.z);
 
-    // 另一隊回防守站位
+    // 另一隊回防守站位；對方扣球時攔網員上網
     const defenders = side > 0 ? this.teams.away : this.teams.home;
-    for (const p of defenders) p.moveTo(p.base.x, p.base.z);
+    for (const p of defenders) {
+      if (plan.block?.blocker === p) {
+        const halfW = COURT.width / 2 - 0.5;
+        p.moveTo(clamp(plan.point.x, -halfW, halfW), -side * BLOCK.netGap);
+      } else {
+        p.moveTo(p.base.x, p.base.z);
+      }
+    }
   }
 
   allPlayers() {

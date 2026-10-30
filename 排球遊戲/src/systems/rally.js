@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { BALL, HIT } from '../config.js';
+import { BALL, BLOCK, COURT, HIT } from '../config.js';
 import { JUMP_TIME } from '../entities/player.js';
 import { input } from '../input/keyboard.js';
 import {
   isInCourt,
   predictCrossing,
   predictLanding,
+  predictNetCrossing,
   stepBall,
   velocityForTime,
   velocityToTarget,
@@ -19,9 +20,18 @@ const HUMAN_SIDES = [1]; // 目前只有 home 由玩家操作；本機雙人時�
 const AI_PERFECT_RATE = 0.3;
 const AI_BAD_RATE = 0.08;
 const AI_DIG_CHANCE = { perfect: 0.35, good: 0.7, bad: 0.9 }; // 接得起對方扣球的機率（依扣球品質）
+const AI_BLOCK_RATE = { perfect: 0.15, good: 0.25 }; // 起跳攔網的機率與品質
+const BLOCK_MAX_NET_DIST = 1; // 攔網員離網超過這距離就攔不到（還沒跑到位）
 const SPIKE_TIME = { perfect: 0.5, good: 0.7, bad: 0.6 }; // 扣球飛行秒數，越短越快
 const ERROR = { perfect: 0, good: 0.8, bad: 2.5 }; // 落點隨機誤差（公尺）
 const SPIKE_AIM_X = 2.8;
+
+// early：離理想時間還有幾秒（負數為晚按）。太早回傳 null（當作沒按）。
+function gradeTiming(early) {
+  if (early > HIT.windows.bad) return null;
+  const diff = Math.abs(early);
+  return diff <= HIT.windows.perfect ? 'perfect' : diff <= HIT.windows.good ? 'good' : 'bad';
+}
 
 // 第幾次觸球 → 依序嘗試的 [擊球類型, 觸球高度]；球不夠高時降級
 const ATTEMPTS = {
@@ -110,8 +120,38 @@ export class Rally {
       const hitter = touch === 1 ? closestTo(team, point) : team.find((p) => p !== this.lastHitter);
       this.plan = { side, touch, type, point, time: this.time + t, hitter, grade: null, jumped: false, leave: false };
       if (!this.isHuman(side)) this.decideAi(this.plan);
+      if (type === 'spike') this.plan.block = this.makeBlock(this.plan);
       return;
     }
+  }
+
+  // 對方要扣球時，防守方離扣球點最近的人上網攔網
+  makeBlock(plan) {
+    const defendSide = -plan.side;
+    const block = {
+      blocker: closestTo(this.sides[defendSide], plan.point),
+      grade: null,
+      jumped: false,
+      idealTime: plan.time - BLOCK.lead,
+    };
+    if (!this.isHuman(defendSide)) {
+      const r = Math.random();
+      if (r < AI_BLOCK_RATE.perfect) block.grade = 'perfect';
+      else if (r < AI_BLOCK_RATE.perfect + AI_BLOCK_RATE.good) block.grade = 'good';
+    }
+    return block;
+  }
+
+  // 目前要給玩家看的時機提示：{ x, z, timeLeft } 或 null
+  getCue() {
+    const plan = this.plan;
+    if (this.state !== 'live' || !plan) return null;
+    if (this.isHuman(plan.side)) return { x: plan.point.x, z: plan.point.z, timeLeft: plan.time - this.time };
+    const block = plan.block;
+    if (block && !block.grade && this.isHuman(block.blocker.team.side)) {
+      return { x: block.blocker.pos.x, z: block.blocker.pos.z, timeLeft: block.idealTime - this.time };
+    }
+    return null;
   }
 
   // AI：一傳看到會出界就不碰；接扣球有機率漏接；其餘照機率決定擊球品質
@@ -122,8 +162,9 @@ export class Rally {
         plan.leave = true;
         return;
       }
-      // 漏接：不給 grade，時間到就當沒碰到
-      if (this.lastType === 'spike' && Math.random() > AI_DIG_CHANCE[this.lastGrade]) return;
+      // 漏接：不給 grade，時間到就當沒碰到。完美攔網蓋下來的球跟扣球一樣難接
+      const hardBall = this.lastType === 'spike' || (this.lastType === 'block' && this.lastGrade === 'perfect');
+      if (hardBall && Math.random() > AI_DIG_CHANCE[this.lastGrade]) return;
     }
     const r = Math.random();
     plan.grade = r < AI_BAD_RATE ? 'bad' : r < AI_BAD_RATE + AI_PERFECT_RATE ? 'perfect' : 'good';
@@ -131,12 +172,30 @@ export class Rally {
 
   press() {
     const plan = this.plan;
-    if (!plan || !this.isHuman(plan.side) || plan.grade) return;
+    if (!plan) return;
+
+    // 對方扣球前：攔網起跳
+    const block = plan.block;
+    if (block && !block.grade && this.isHuman(block.blocker.team.side)) {
+      const grade = gradeTiming(block.idealTime - this.time);
+      if (!grade) return;
+      block.grade = grade;
+      this.blockJump(block);
+      return;
+    }
+
+    if (!this.isHuman(plan.side) || plan.grade) return;
     const early = plan.time - this.time; // 正數：提早按
-    if (early > HIT.windows.bad) return; // 太早，當作沒按，可以再按一次
-    const diff = Math.abs(early);
-    plan.grade = diff <= HIT.windows.perfect ? 'perfect' : diff <= HIT.windows.good ? 'good' : 'bad';
+    const grade = gradeTiming(early);
+    if (!grade) return; // 太早，當作沒按，可以再按一次
+    plan.grade = grade;
     if (early <= 0) this.hit(); // 晚按：馬上擊球
+  }
+
+  blockJump(block) {
+    block.jumped = true;
+    block.blocker.playJump();
+    block.blocker.playAction('set'); // 雙手舉高
   }
 
   updatePlan() {
@@ -148,6 +207,10 @@ export class Rally {
       plan.hitter.playJump();
       plan.jumped = true;
     }
+
+    // AI 攔網員在理想時間起跳
+    const block = plan.block;
+    if (block && block.grade && !block.jumped && this.time >= block.idealTime) this.blockJump(block);
 
     if (this.time < plan.time) return;
     if (plan.grade) {
@@ -173,14 +236,51 @@ export class Rally {
     hitter.playAction(type === 'spike' ? 'swing' : plan.point.y < 1.5 ? 'bump' : 'set');
     if (this.isHuman(side)) this.hud.showJudge(grade);
 
-    this.lastSide = side;
+    if (type === 'spike' && this.tryBlock(plan)) return;
+    this.touched(hitter, type, grade, plan.touch);
+  }
+
+  // 記錄最後一次觸球，並預測下一次
+  touched(player, type, grade, touches) {
+    this.lastSide = player.team.side;
     this.lastType = type;
     this.lastGrade = grade;
-    this.lastHitter = hitter;
-    this.touches = plan.touch;
+    this.lastHitter = player;
+    this.touches = touches;
     this.flags.net = false;
     this.flags.outsideAntenna = false;
     this.replan();
+  }
+
+  // 扣球剛擊出：球路經過攔網員手的範圍就被攔下。回傳是否攔到。
+  tryBlock(plan) {
+    const { blocker, grade } = plan.block;
+    const width = BLOCK.width[grade];
+    if (!width || Math.abs(blocker.pos.z) > BLOCK_MAX_NET_DIST) return false;
+
+    const cross = predictNetCrossing(this.ball, new THREE.Vector3());
+    if (!cross || cross.y < COURT.netHeight || cross.y > BLOCK.reach) return false;
+    if (Math.abs(cross.x - blocker.pos.x) > width) return false;
+
+    // 球在網子攻擊方那一側被手擋下
+    const s = plan.side;
+    const ball = this.ball;
+    ball.pos.set(cross.x, cross.y, s * (BALL.radius + 0.05));
+    const target = new THREE.Vector3();
+    if (grade === 'perfect') {
+      // 直接蓋回對方場地
+      target.set(cross.x + (Math.random() * 2 - 1), BALL.radius, s * (1.5 + Math.random() * 1.5));
+      velocityForTime(ball.pos, target, 0.45, ball.vel);
+    } else {
+      // 軟攔：球彈高回對方場地，對方可以再組織進攻
+      target.set((Math.random() * 2 - 1) * 2, HIT.heights.bump, s * 4);
+      velocityToTarget(ball.pos, target, cross.y + 1.5, ball.vel);
+    }
+
+    if (this.isHuman(blocker.team.side)) this.hud.showJudge('block');
+    // 攔網不算三次觸球之一，對方重新算三次
+    this.touched(blocker, 'block', grade, 0);
+    return true;
   }
 
   shoot({ side, type, grade, hitter }) {
@@ -241,7 +341,7 @@ export class Rally {
       reason = '標誌桿外';
     } else if (isInCourt(pos)) {
       loser = landSide;
-      reason = '界內';
+      reason = this.lastType === 'block' ? '攔網' : '界內';
     } else {
       loser = this.lastSide;
       reason = '出界';
