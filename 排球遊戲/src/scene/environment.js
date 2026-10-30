@@ -5,14 +5,16 @@ import { addOutline, toonMaterial } from '../fx/toon.js';
 const SKY_TOP = 0x3d9be9;
 const SKY_HORIZON = 0xcdeeff;
 const SAND = 0xf2d6a2;
-const SHORE_Z = -28; // 海岸線位置（對手後方）
+export const SHORE_Z = -28; // 海岸線位置（對手後方）
 
 export function createEnvironment(scene) {
   scene.background = new THREE.Color(SKY_HORIZON);
   scene.fog = new THREE.Fog(SKY_HORIZON, 60, 220);
 
   const group = new THREE.Group();
-  group.add(createSky(), createSand(), createSea(), createPalmTrees());
+  const palms = createPalmTrees();
+  group.add(createSky(), createSand(), createSea(), palms);
+  group.userData.palms = palms.children; // 場景氛圍（ambience.js）讓椰子樹隨風擺動
   return group;
 }
 
@@ -131,6 +133,7 @@ function createPalmTree(height) {
 
   // 葉子：扁平錐體向外下垂
   const leafCount = 7;
+  const leaves = [];
   for (let i = 0; i < leafCount; i++) {
     const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.45, 3, 4), leafMaterial);
     leaf.geometry.translate(0, 1.5, 0);
@@ -141,7 +144,9 @@ function createPalmTree(height) {
     leaf.rotation.x = 1.15 + (i % 2) * 0.25;
     leaf.castShadow = true;
     tree.add(leaf);
+    leaves.push(leaf);
   }
+  tree.userData.leaves = leaves;
 
   return addOutline(tree, { thickness: 2.6 });
 }

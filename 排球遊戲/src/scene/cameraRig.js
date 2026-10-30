@@ -3,8 +3,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CAMERA_PRESETS } from './camera.js';
 
 const TRANSITION_TIME = 0.6; // 切換預設視角的過場秒數
-// 主畫面：從球場斜上方慢慢繞場（autoRotateSpeed 1 約 60 秒一圈）
-const ORBIT_VIEW = { position: [13, 6, 13], target: [0, 1, 0] };
+// 主畫面：從球場斜上方慢慢繞場（autoRotateSpeed 1 約 60 秒一圈）。
+// 繞的半徑 15 公尺：在椰子樹（17 公尺外）和旗子（20 公尺外）裡面，繞一圈都不會被擋住
+const ORBIT_VIEW = { position: [10.6, 7, 10.6], target: [0, 1, 0] };
 const ORBIT_SPEED = 1;
 
 // 鏡頭控制：滑鼠拖曳 360 度旋轉、滾輪往游標方向縮放、切換預設視角，最後疊上畫面震動

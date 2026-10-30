@@ -4,10 +4,12 @@ import { sound } from './audio/sound.js';
 import { Ball, createLandingMarker, createSpikeMarker, createTimingCue } from './entities/ball.js';
 import { Player } from './entities/player.js';
 import { Effects } from './fx/effects.js';
+import { Footprints } from './fx/footprints.js';
 import { input } from './input/keyboard.js';
 import { createCamera } from './scene/camera.js';
 import { CameraRig } from './scene/cameraRig.js';
 import { createCourt } from './scene/court.js';
+import { Ambience } from './scene/ambience.js';
 import { createEnvironment } from './scene/environment.js';
 import { Graphics } from './scene/graphics.js';
 import { createLights } from './scene/lights.js';
@@ -38,7 +40,10 @@ renderer.toneMapping = THREE.NeutralToneMapping; // 比 ACES 更保留鮮豔色�
 document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.add(createEnvironment(scene), createCourt(), createLights());
+const environment = createEnvironment(scene);
+scene.add(environment, createCourt(), createLights());
+const ambience = new Ambience(scene, environment.userData.palms); // 觀眾、旗子、雲、海浪、椰子樹擺動
+const footprints = new Footprints(scene);
 
 const camera = createCamera();
 const graphics = new Graphics(renderer, scene, camera);
@@ -123,9 +128,13 @@ const rally = new Rally(ball, teams, hud, {
     hud.setScore(match.score, match.servingSide);
     positioning.celebrate(side);
     sound.play('whistle');
+    // 觀眾每一分都會歡呼，我方得分時比較熱烈
     if (HUMAN_SIDES.includes(side)) {
       sound.play('cheer');
       effects.celebrate(ball.pos);
+      ambience.cheer(1);
+    } else {
+      ambience.cheer(0.5);
     }
   },
   onFinished: () => {
@@ -135,7 +144,10 @@ const rally = new Rally(ball, teams, hud, {
       const win = HUMAN_SIDES.includes(match.winner);
       hud.showGameOver({ win, score: match.score });
       sound.play(win ? 'win' : 'lose');
-      if (win) effects.celebrate(COURT_CENTER, true);
+      if (win) {
+        effects.celebrate(COURT_CENTER, true);
+        ambience.cheer(1.4);
+      }
     } else {
       serve.reset(match.server(teams));
     }
@@ -256,10 +268,17 @@ function startPractice(drill) {
     positioning,
     hud,
     slow: practiceSlow,
-    onResult: (ok) => ok && sound.play('success'),
+    onResult: practiceResult,
   });
   hud.setHint(DRILLS[drill].hint);
   practice.start();
+}
+
+// 練習、教學每一球成功時：音效＋觀眾小小歡呼
+function practiceResult(ok) {
+  if (!ok) return;
+  sound.play('success');
+  ambience.cheer(0.6);
 }
 
 // 互動教學：發球 → 接球 → 扣球 → 攔網，做對才進下一步，全部完成後慶祝並回到主畫面
@@ -268,10 +287,11 @@ function startTutorial() {
   practice = new Tutorial(
     { teams, ball, rally, serve, positioning, hud },
     {
-      onResult: (ok) => ok && sound.play('success'),
+      onResult: practiceResult,
       onComplete: () => {
         sound.play('win');
         effects.celebrate(COURT_CENTER, true);
+        ambience.cheer(1.4);
       },
       onDone: () => {
         openMenu();
@@ -465,7 +485,9 @@ renderer.setAnimationLoop((time) => {
   if (live && rally.ballState && !effects.frozen) effects.trail(ball.pos, rally.ballState === 'power');
   ball.syncMesh(animDt);
   if (inMenu) warmBall.syncMesh(animDt);
+  footprints.update(dt, players);
   hud.setEnergy(rally.energy, rally.armed, POWER.maxEnergy);
+  ambience.update(dt);
   effects.update(dt);
   rig.update(dt, effects.shakeOffset);
   input.endFrame();
