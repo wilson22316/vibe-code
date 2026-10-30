@@ -68,6 +68,7 @@ body {
 }
 
 #menu,
+#pause,
 #game-over {
   position: absolute;
   inset: 0;
@@ -95,8 +96,56 @@ body {
   font-size: 36px;
 }
 
-#menu {
-  pointer-events: auto; /* 可以用滑鼠點難度 */
+#menu,
+#pause {
+  pointer-events: auto; /* 可以用滑鼠點選 */
+}
+
+#pause-title {
+  font-size: 56px;
+  color: #fff;
+  -webkit-text-stroke: 4px #5b6cff;
+  paint-order: stroke fill;
+}
+
+#pause-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+#pause-options button {
+  min-width: 200px;
+  padding: 10px 18px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.55);
+  color: #fff;
+  font: inherit;
+  font-size: 22px;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+
+#pause-options button.selected {
+  background: #ff6b4a;
+  transform: scale(1.08);
+}
+
+#pause-button {
+  position: absolute;
+  top: 18px;
+  left: 16px;
+  padding: 6px 14px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.55);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 #menu-title {

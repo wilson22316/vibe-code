@@ -1,8 +1,13 @@
 // 鍵盤輸入層：遊戲邏輯只認「動作」，不直接認按鍵。
 // 之後加手機觸控或手把時，只要多一個來源去觸發同樣的動作。
 const BINDINGS = {
-  Space: 'action', // 發球（按住蓄力）／擊球（抓時機）
+  Space: 'action', // 發球（按住蓄力）／擊球（抓時機）／選單確定
   KeyJ: 'action',
+  Enter: 'action',
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+  Escape: 'pause',
+  KeyP: 'pause',
   ArrowLeft: 'left',
   KeyA: 'left',
   ArrowRight: 'right',

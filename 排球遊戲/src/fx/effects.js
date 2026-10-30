@@ -48,6 +48,14 @@ export class Effects {
     this.slowTimer = SLOW_TIME;
   }
 
+  // 重新開局或回主畫面時，清掉還在飛的粒子、慢動作與震動
+  reset() {
+    this.dust.clear();
+    this.confetti.clear();
+    this.slowTimer = 0;
+    this.shakeAmount = 0;
+  }
+
   update(dt) {
     this.dust.update(dt);
     this.confetti.update(dt);

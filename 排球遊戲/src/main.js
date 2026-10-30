@@ -116,12 +116,14 @@ let inMenu = true;
 function openMenu() {
   inMenu = true;
   hud.showGameOver(null);
+  hud.setPauseButtonVisible(false);
   hud.showMenu(LEVELS[levelIndex]);
 }
 
 function startMatch() {
   inMenu = false;
   hud.showMenu(null);
+  hud.setPauseButtonVisible(true);
   setAiLevel(LEVELS[levelIndex]);
   for (const p of teams.away) p.speedScale = aiLevel().speed;
   match.reset();
@@ -148,10 +150,72 @@ hud.onLevelClick((level) => {
   startMatch();
 });
 
-// 選單背後先擺好發球前的場景
-match.reset();
-hud.setScore(match.score, match.servingSide);
-serve.reset(match.server(teams));
+// 選單背後擺好發球前的場景
+function setupMenuScene() {
+  match.reset();
+  hud.setScore(match.score, match.servingSide);
+  serve.reset(match.server(teams));
+}
+
+// 暫停選單：繼續、重新開局（同難度）、回到主畫面
+const PAUSE_OPTIONS = ['resume', 'restart', 'menu'];
+let paused = false;
+let pauseIndex = 0;
+
+// 一局打完、結果畫面出現後就不需要暫停
+function canPause() {
+  return !inMenu && !(match.winner && rally.state === 'idle');
+}
+
+function pause() {
+  if (paused || !canPause()) return;
+  paused = true;
+  pauseIndex = 0;
+  serve.cancelCharge();
+  hud.showPause(pauseIndex);
+  sound.play('ui');
+}
+
+function resume() {
+  paused = false;
+  hud.showPause(null);
+}
+
+// 中斷正在進行的這一球
+function abortRally() {
+  rally.reset();
+  effects.reset();
+  hud.showResult(null);
+}
+
+function choosePause(option) {
+  sound.play('ui');
+  resume();
+  if (option === 'restart') {
+    abortRally();
+    startMatch();
+  } else if (option === 'menu') {
+    abortRally();
+    setupMenuScene();
+    openMenu();
+  }
+}
+
+function updatePause() {
+  const dir = (input.wasPressed('down') ? 1 : 0) - (input.wasPressed('up') ? 1 : 0);
+  if (dir !== 0) {
+    pauseIndex = (pauseIndex + dir + PAUSE_OPTIONS.length) % PAUSE_OPTIONS.length;
+    hud.showPause(pauseIndex);
+    sound.play('ui');
+  }
+  if (input.wasPressed('action')) choosePause(PAUSE_OPTIONS[pauseIndex]);
+  else if (input.wasPressed('pause')) resume();
+}
+
+hud.onPauseOption(choosePause);
+hud.onPauseButton(pause);
+
+setupMenuScene();
 openMenu();
 
 function resize() {
@@ -182,13 +246,24 @@ renderer.setAnimationLoop((time) => {
   if (input.wasPressed('mute')) hud.setMuted(sound.toggleMute());
   if (input.wasPressed('graphics')) toggleGraphics();
 
-  if (inMenu) {
+  if (paused) {
+    updatePause();
+  } else if (inMenu) {
     updateMenu();
+  } else if (input.wasPressed('pause') && canPause()) {
+    pause();
   } else {
     serve.update(dt);
     rally.update();
     // 一局結束、結果畫面出現後，按鍵回到選單
     if (match.winner && rally.state === 'idle' && input.wasPressed('action')) openMenu();
+  }
+
+  // 暫停時整個場面定格（球、角色、粒子、慢動作都不動），只繼續畫畫面
+  if (paused) {
+    input.endFrame();
+    graphics.render();
+    return;
   }
 
   if (rally.state !== 'idle') {

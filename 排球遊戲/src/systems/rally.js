@@ -54,6 +54,12 @@ export class Rally {
     this.time = 0;
   }
 
+  // 中斷這一球（暫停選單的重新開局、回到主畫面）
+  reset() {
+    this.state = 'idle';
+    this.plan = null;
+  }
+
   start(server) {
     this.state = 'live';
     this.time = 0;

@@ -76,6 +76,13 @@ export class ServeController {
     }
   }
 
+  // 暫停時取消蓄力：暫停期間放開按鍵不會被偵測到，繼續後才不會莫名其妙發出去
+  cancelCharge() {
+    if (this.state !== 'charging') return;
+    this.state = 'ready';
+    this.hud.setPower(null);
+  }
+
   updateAim(dt) {
     const dir = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
     this.aimX = THREE.MathUtils.clamp(this.aimX + dir * AIM_SPEED * dt, -AIM_LIMIT, AIM_LIMIT);

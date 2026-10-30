@@ -34,6 +34,12 @@ export class ParticleSystem {
     for (let i = 0; i < this.max; i++) this.pos[i * 3 + 1] = -100;
   }
 
+  clear() {
+    this.life.fill(0);
+    this.hideAll();
+    this.points.geometry.attributes.position.needsUpdate = true;
+  }
+
   // origin：Vector3；colors：色碼陣列（隨機挑）；speed：初速；up：額外往上的速度
   emit(origin, { count, colors, speed, up = 0, life = 0.6, spread = 0 }) {
     const color = new THREE.Color();

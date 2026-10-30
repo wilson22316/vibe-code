@@ -13,6 +13,9 @@ const menu = document.getElementById('menu');
 const muteBadge = document.getElementById('mute');
 const graphicsButton = document.getElementById('graphics-button');
 const toastEl = document.getElementById('toast');
+const pauseEl = document.getElementById('pause');
+const pauseOptions = [...document.querySelectorAll('#pause-options button')];
+const pauseButton = document.getElementById('pause-button');
 const levelButtons = [...document.querySelectorAll('#levels button')];
 
 const JUDGE_TEXT = {
@@ -49,6 +52,33 @@ export const hud = {
   onGraphicsClick(callback) {
     graphicsButton.addEventListener('click', () => {
       graphicsButton.blur(); // 不然之後按空白鍵會再觸發這顆按鈕
+      callback();
+    });
+  },
+
+  // 暫停畫面：selected 為選中的選項索引；傳 null 隱藏
+  showPause(selected) {
+    pauseEl.hidden = selected === null;
+    pauseOptions.forEach((b, i) => b.classList.toggle('selected', i === selected));
+  },
+
+  // 滑鼠點暫停選項：callback('resume' | 'restart' | 'menu')
+  onPauseOption(callback) {
+    for (const b of pauseOptions) {
+      b.addEventListener('click', () => {
+        b.blur();
+        callback(b.dataset.option);
+      });
+    }
+  },
+
+  setPauseButtonVisible(visible) {
+    pauseButton.hidden = !visible;
+  },
+
+  onPauseButton(callback) {
+    pauseButton.addEventListener('click', () => {
+      pauseButton.blur();
       callback();
     });
   },

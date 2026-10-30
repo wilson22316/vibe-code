@@ -35,6 +35,16 @@
       <div id="hint">空白鍵：按住蓄力發球／外圈縮到黃圈時擊球、攔網　·　← →：瞄準、扣球方向　·　M：靜音　·　G：畫質</div>
       <div id="mute" hidden>靜音中</div>
       <div id="toast"></div>
+      <button id="pause-button" hidden>暫停（Esc）</button>
+      <div id="pause" hidden>
+        <div id="pause-title">暫停</div>
+        <div id="pause-options">
+          <button data-option="resume">繼續</button>
+          <button data-option="restart">重新開局</button>
+          <button data-option="menu">回到主畫面</button>
+        </div>
+        <div class="again">↑ ↓ 選擇　·　空白鍵 確定　·　Esc 繼續</div>
+      </div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>
