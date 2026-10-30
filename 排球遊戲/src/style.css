@@ -70,6 +70,54 @@ body {
   animation: pop 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
 }
 
+#judge {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 40px;
+  font-style: italic;
+  -webkit-text-stroke: 3px #fff;
+  paint-order: stroke fill;
+  opacity: 0;
+  white-space: nowrap;
+}
+
+#judge[data-grade='perfect'] {
+  color: #ffb800;
+}
+#judge[data-grade='good'] {
+  color: #2fbf4f;
+}
+#judge[data-grade='bad'],
+#judge[data-grade='far'] {
+  color: #8a8a8a;
+}
+#judge[data-grade='miss'] {
+  color: #ff5a3d;
+}
+
+#judge.flash {
+  animation: flash 0.8s ease-out forwards;
+}
+
+@keyframes flash {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.4);
+  }
+  20% {
+    transform: translateX(-50%) scale(1);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+}
+
 [hidden] {
   display: none !important;
 }

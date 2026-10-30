@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BALL, COURT } from '../config.js';
 import { input } from '../input/keyboard.js';
-import { isInCourt, velocityToTarget } from './ballPhysics.js';
+import { velocityToTarget } from './ballPhysics.js';
 
 const SERVE_SPOT = new THREE.Vector3(1.5, 0, COURT.length / 2 + 0.8);
 // 發球員站在球的左後方，球在右手邊，鏡頭從後面看才不會被身體擋住
@@ -12,18 +12,18 @@ const HIT_HEIGHT = 2.6;
 const CHARGE_TIME = 1.1; // 力道從 0 到滿的秒數，之後來回擺盪
 const AIM_SPEED = 4;
 const AIM_LIMIT = COURT.width / 2 + 1;
-const RESULT_TIME = 1.8;
 
-// 第 2 階段的發球測試流程：準備 → 蓄力 → 飛行 → 顯示判定 → 重來。
-// 第 5 階段加入規則與計分後，流程會交給規則系統管理。
+// 發球：準備 → 蓄力 → 發出（之後交給 Rally）。
 export class ServeController {
   // onReset：每球重來時呼叫（讓其他角色回站位），在發球員就位之前執行
-  constructor(ball, hud, aimMarker, server, onReset) {
+  // onServe：球發出後呼叫
+  constructor(ball, hud, aimMarker, server, { onReset, onServe }) {
     this.ball = ball;
     this.hud = hud;
     this.aimMarker = aimMarker;
     this.server = server;
     this.onReset = onReset;
+    this.onServe = onServe;
     this.aimX = 0;
     this.reset();
   }
@@ -33,7 +33,6 @@ export class ServeController {
     this.server.resetTo(SERVE_SPOT.x + SERVER_OFFSET_X, SERVE_SPOT.z + SERVER_OFFSET_Z);
     this.state = 'ready';
     this.charge = 0;
-    this.flags = { net: false, outsideAntenna: false };
     this.ball.pos.set(SERVE_SPOT.x, HOLD_HEIGHT, SERVE_SPOT.z);
     this.ball.vel.set(0, 0, 0);
     this.hud.setPower(null);
@@ -44,7 +43,7 @@ export class ServeController {
   update(dt) {
     if (this.state === 'ready' || this.state === 'charging') this.updateAim(dt);
 
-    if (this.state === 'ready' && input.wasPressed('serve')) {
+    if (this.state === 'ready' && input.wasPressed('action')) {
       this.state = 'charging';
       this.chargeTime = 0;
     }
@@ -54,12 +53,7 @@ export class ServeController {
       const phase = (this.chargeTime / CHARGE_TIME) % 2;
       this.charge = phase <= 1 ? phase : 2 - phase;
       this.hud.setPower(this.charge);
-      if (input.wasReleased('serve')) this.launch();
-    }
-
-    if (this.state === 'result') {
-      this.resultTimer -= dt;
-      if (this.resultTimer <= 0) this.reset();
+      if (input.wasReleased('action')) this.launch();
     }
   }
 
@@ -77,39 +71,12 @@ export class ServeController {
 
     this.ball.pos.set(SERVE_SPOT.x, HIT_HEIGHT, SERVE_SPOT.z);
     velocityToTarget(this.ball.pos, target, apex, this.ball.vel);
-    this.server.playSwing();
+    this.server.playAction('swing');
 
-    this.state = 'flying';
+    this.state = 'served';
     this.hud.setPower(null);
     this.aimMarker.visible = false;
-  }
-
-  // 由主迴圈把物理事件轉交進來
-  onBallEvents(events) {
-    if (this.state !== 'flying') return;
-    if (events.includes('net')) this.flags.net = true;
-    if (events.includes('outsideAntenna')) this.flags.outsideAntenna = true;
-    if (events.includes('ground')) this.judge();
-  }
-
-  judge() {
-    const pos = this.ball.pos;
-    let result;
-    if (pos.z < 0) {
-      if (this.flags.outsideAntenna) result = { text: '出界（標誌桿外）', good: false };
-      else if (isInCourt(pos)) result = { text: '界內！', good: true };
-      else result = { text: '出界', good: false };
-    } else {
-      result = { text: this.flags.net ? '掛網' : '沒過網', good: false };
-    }
-    this.hud.showResult(result);
-    this.state = 'result';
-    this.resultTimer = RESULT_TIME;
-  }
-
-  // 球還在手上或已落地時，不需要顯示落點
-  get isBallInFlight() {
-    return this.state === 'flying';
+    this.onServe(this.server);
   }
 }
 

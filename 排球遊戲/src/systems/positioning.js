@@ -1,50 +1,47 @@
-import { COURT } from '../config.js';
+import * as THREE from 'three';
+import { COURT, HIT } from '../config.js';
 
 const REACH_MARGIN = 1.5; // 允許跑出場外多遠去救球
+const SPIKE_APPROACH_Z = 3.2; // 等舉球時，攻擊手先退到這裡準備助跑
 
-// 簡化版自動跑位：球飛行時，落點那一隊離落點最近的人跑過去，隊友回站位。
-// 第 4 階段會改成跑到「擊球點」而非落點，第 6 階段 AI 會在這之上做決策。
+// 簡化版自動跑位：依 Rally 的下一次觸球計畫（plan）決定每個人該去哪。
+// 第 6 階段 AI 會在這之上做決策。
 export class Positioning {
   constructor(teams) {
     this.teams = teams; // { home: Player[], away: Player[] }
-    this.receiver = null;
   }
 
   // 每球開始前全員回站位
   reset() {
-    this.receiver = null;
     for (const p of this.allPlayers()) {
       p.resetTo(p.base.x, p.base.z);
       p.facing = null;
     }
   }
 
-  // landing：預測落點（Vector3）或 null；ballPos：讓沒在跑的人盯著球
-  update(landing, ballPos) {
-    if (!landing) {
-      this.receiver = null;
-      for (const p of this.allPlayers()) p.facing = null;
-      return;
+  // plan：Rally 的觸球計畫或 null；live：來回進行中（大家盯著球）
+  update(plan, ballPos, live) {
+    for (const p of this.allPlayers()) p.facing = live ? ballPos : null;
+    if (!plan) return;
+
+    const { hitter, side, type } = plan;
+    const team = side > 0 ? this.teams.home : this.teams.away;
+    const teammate = team.find((p) => p !== hitter);
+
+    if (plan.leave) hitter.moveTo(hitter.base.x, hitter.base.z);
+    else {
+      const spot = standSpot(plan);
+      hitter.moveTo(spot.x, spot.z);
     }
 
-    const team = landing.z > 0 ? this.teams.home : this.teams.away;
+    // 隊友預先到下一次觸球的位置
+    if (type === 'bump') teammate.moveTo(0, side * (HIT.setSpotZ + HIT.standBehind));
+    else if (type === 'set') teammate.moveTo(teammate.base.x * 0.9, side * SPIKE_APPROACH_Z);
+    else teammate.moveTo(teammate.base.x, teammate.base.z);
 
-    // 接球的人一旦選定就不換，除非落點跑到另一隊（例如撞網彈回）
-    if (!this.receiver || !team.includes(this.receiver)) {
-      this.receiver = closestTo(team, landing);
-    }
-
-    const side = this.receiver.team.side;
-    const halfW = COURT.width / 2 + REACH_MARGIN;
-    const maxDepth = COURT.length / 2 + REACH_MARGIN;
-    const x = clamp(landing.x, -halfW, halfW);
-    const z = side * clamp(Math.abs(landing.z), 0.6, maxDepth);
-    this.receiver.moveTo(x, z);
-
-    for (const p of this.allPlayers()) {
-      p.facing = ballPos;
-      if (p !== this.receiver) p.moveTo(p.base.x, p.base.z);
-    }
+    // 另一隊回防守站位
+    const defenders = side > 0 ? this.teams.away : this.teams.home;
+    for (const p of defenders) p.moveTo(p.base.x, p.base.z);
   }
 
   allPlayers() {
@@ -52,7 +49,19 @@ export class Positioning {
   }
 }
 
-function closestTo(players, point) {
+// 擊球時角色該站的位置：觸球點後方一點，限制在可救球範圍內
+export function standSpot(plan) {
+  const halfW = COURT.width / 2 + REACH_MARGIN;
+  const maxDepth = COURT.length / 2 + REACH_MARGIN;
+  const z = plan.point.z + plan.side * HIT.standBehind;
+  return new THREE.Vector3(
+    clamp(plan.point.x, -halfW, halfW),
+    0,
+    plan.side * clamp(Math.abs(z), 0.4, maxDepth),
+  );
+}
+
+export function closestTo(players, point) {
   let best = players[0];
   let bestDist = Infinity;
   for (const p of players) {

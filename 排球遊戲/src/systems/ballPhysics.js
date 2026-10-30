@@ -57,6 +57,40 @@ export function velocityToTarget(from, to, apexHeight, out) {
   return out.set((to.x - from.x) / flightTime, vy, (to.z - from.z) / flightTime);
 }
 
+// 指定飛行時間直達目標（扣球用：時間越短球越快越平）
+export function velocityForTime(from, to, time, out) {
+  return out.set(
+    (to.x - from.x) / time,
+    (to.y - from.y) / time + 0.5 * BALL.gravity * time,
+    (to.z - from.z) / time,
+  );
+}
+
+// 模擬到球「往下掉」經過指定高度，回傳經過的秒數並把位置寫入 out；先落地就回傳 null。
+export function predictCrossing(state, height, out, dt = 1 / 120, maxSteps = 1200) {
+  const sim = { pos: state.pos.clone(), vel: state.vel.clone() };
+  for (let i = 1; i <= maxSteps; i++) {
+    const prevY = sim.pos.y;
+    if (stepBall(sim, dt).includes('ground')) return null;
+    if (sim.vel.y < 0 && prevY > height && sim.pos.y <= height) {
+      out.copy(sim.pos);
+      return i * dt;
+    }
+  }
+  return null;
+}
+
+// 這條球路在落地前會不會撞網
+export function willHitNet(state, dt = 1 / 120, maxSteps = 1200) {
+  const sim = { pos: state.pos.clone(), vel: state.vel.clone() };
+  for (let i = 0; i < maxSteps; i++) {
+    const events = stepBall(sim, dt);
+    if (events.includes('net')) return true;
+    if (events.includes('ground')) return false;
+  }
+  return false;
+}
+
 // 模擬到第一次觸地，回傳落點（含撞網的影響）。找不到就回傳 null。
 export function predictLanding(state, out, dt = 1 / 120, maxSteps = 1200) {
   const sim = { pos: state.pos.clone(), vel: state.vel.clone() };

@@ -14,6 +14,15 @@ export const BALL = {
   friction: 0.6, // 每次觸地水平速度保留比例
 };
 
+export const HIT = {
+  heights: { bump: 0.9, set: 2.1, spike: 3.0 }, // 各種擊球的觸球高度
+  windows: { perfect: 0.07, good: 0.18, bad: 0.35 }, // 時機判定（秒，與理想觸球時間的差）
+  reach: 0.9, // 角色離理想站位多遠以內還碰得到球
+  standBehind: 0.35, // 站在觸球點後方（遠離網子）多少
+  setSpotZ: 2.2, // 墊球送到離網多遠讓隊友舉
+  spikeSpotZ: 1.6, // 舉球送到離網多遠讓隊友扣
+};
+
 export const PLAYER = {
   speed: 5.5, // 最高跑速（公尺/秒）
   turnSpeed: 12, // 轉身速度

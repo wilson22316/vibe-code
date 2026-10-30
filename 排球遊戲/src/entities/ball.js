@@ -43,6 +43,25 @@ function createBallTexture() {
   return texture;
 }
 
+// 時機提示：觸球點下方的固定圓環＋往內縮的外圈，外圈縮到跟內圈一樣大時按鍵就是 Perfect
+const CUE_SHRINK = 2.5; // 每秒縮多少倍
+export function createTimingCue() {
+  const group = new THREE.Group();
+  const ringMat = (color) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false });
+  const inner = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.42, 32), ringMat(0xffe14d));
+  const outer = new THREE.Mesh(new THREE.RingGeometry(0.36, 0.42, 32), ringMat(0xffffff));
+  for (const ring of [inner, outer]) {
+    ring.rotation.x = -Math.PI / 2;
+    group.add(ring);
+  }
+  group.visible = false;
+  group.userData.update = (x, z, timeToContact) => {
+    group.position.set(x, 0.03, z);
+    outer.scale.setScalar(1 + THREE.MathUtils.clamp(timeToContact, 0, 1.5) * CUE_SHRINK);
+  };
+  return group;
+}
+
 // 落點預測標記：地上的圓環，讓玩家知道球會掉在哪
 export function createLandingMarker() {
   const marker = new THREE.Mesh(

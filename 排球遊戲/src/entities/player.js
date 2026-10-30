@@ -3,7 +3,9 @@ import { PLAYER } from '../config.js';
 
 const ARRIVE_RADIUS = 0.05;
 const SLOW_RADIUS = 0.8; // 接近目標時減速，避免來回抖動
-const SWING_TIME = 0.35;
+const ACTION_TIME = { swing: 0.35, bump: 0.35, set: 0.35 };
+export const JUMP_TIME = 0.6;
+const JUMP_HEIGHT = 0.8;
 
 // Q 版角色：大頭、短身。原點在腳底，預設面向 +z。
 export class Player {
@@ -17,7 +19,9 @@ export class Player {
     this.runAmount = 0;
     this.phase = 0;
     this.time = Math.random() * 10;
-    this.swingTimer = 0;
+    this.action = null;
+    this.actionTimer = 0;
+    this.jumpTimer = 0;
 
     this.mesh = buildModel({ shirt, skin, hair });
     this.parts = this.mesh.userData.parts;
@@ -34,10 +38,18 @@ export class Player {
     this.target.copy(this.pos);
     this.heading = this.team.side > 0 ? Math.PI : 0;
     this.runAmount = 0;
+    this.actionTimer = 0;
+    this.jumpTimer = 0;
   }
 
-  playSwing() {
-    this.swingTimer = SWING_TIME;
+  // 'swing' 揮臂（發球、扣球）、'bump' 墊球、'set' 舉球
+  playAction(type) {
+    this.action = type;
+    this.actionTimer = ACTION_TIME[type];
+  }
+
+  playJump() {
+    this.jumpTimer = JUMP_TIME;
   }
 
   update(dt) {
@@ -63,7 +75,8 @@ export class Player {
 
     this.runAmount = THREE.MathUtils.damp(this.runAmount, speed / PLAYER.speed, 10, dt);
     this.phase += dt * 13 * this.runAmount;
-    this.swingTimer = Math.max(0, this.swingTimer - dt);
+    this.actionTimer = Math.max(0, this.actionTimer - dt);
+    this.jumpTimer = Math.max(0, this.jumpTimer - dt);
 
     this.animate();
     this.syncMesh();
@@ -83,15 +96,28 @@ export class Player {
     body.position.y = Math.abs(s) * 0.07 * run + Math.sin(this.time * 3) * 0.012;
     body.rotation.x = run * 0.15;
 
-    // 揮臂：右手快速舉起再揮下
-    if (this.swingTimer > 0) {
-      const t = 1 - this.swingTimer / SWING_TIME;
-      armR.rotation.x = -Math.PI * 0.9 * Math.sin(t * Math.PI);
+    armL.rotation.z = 0;
+    armR.rotation.z = 0;
+    if (this.actionTimer > 0) {
+      const k = Math.sin((1 - this.actionTimer / ACTION_TIME[this.action]) * Math.PI);
+      if (this.action === 'swing') {
+        // 右手快速舉起再揮下
+        armR.rotation.x = -Math.PI * 0.9 * k;
+      } else if (this.action === 'bump') {
+        // 雙手往前併攏
+        armL.rotation.x = armR.rotation.x = -1.2 * k;
+        armL.rotation.z = -0.35 * k;
+        armR.rotation.z = 0.35 * k;
+      } else if (this.action === 'set') {
+        // 雙手舉過頭
+        armL.rotation.x = armR.rotation.x = -2.7 * k;
+      }
     }
   }
 
   syncMesh() {
     this.mesh.position.copy(this.pos);
+    this.mesh.position.y = this.jumpTimer > 0 ? JUMP_HEIGHT * Math.sin((1 - this.jumpTimer / JUMP_TIME) * Math.PI) : 0;
     this.mesh.rotation.y = this.heading;
   }
 }

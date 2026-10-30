@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { TEAMS } from './config.js';
-import { Ball, createLandingMarker } from './entities/ball.js';
+import { Ball, createLandingMarker, createTimingCue } from './entities/ball.js';
 import { Player } from './entities/player.js';
 import { input } from './input/keyboard.js';
 import { createCamera } from './scene/camera.js';
 import { createCourt } from './scene/court.js';
 import { createEnvironment } from './scene/environment.js';
 import { createLights } from './scene/lights.js';
-import { predictLanding, stepBall } from './systems/ballPhysics.js';
+import { predictLanding } from './systems/ballPhysics.js';
 import { Positioning } from './systems/positioning.js';
+import { Rally } from './systems/rally.js';
 import { createAimMarker, ServeController } from './systems/serve.js';
 import { hud } from './ui/hud.js';
 
@@ -29,8 +30,9 @@ const camera = createCamera();
 
 const ball = new Ball();
 const landingMarker = createLandingMarker();
+const timingCue = createTimingCue();
 const aimMarker = createAimMarker();
-scene.add(ball.mesh, landingMarker, aimMarker);
+scene.add(ball.mesh, landingMarker, timingCue, aimMarker);
 
 const teams = {};
 for (const [name, team] of Object.entries(TEAMS)) {
@@ -40,8 +42,12 @@ for (const [name, team] of Object.entries(TEAMS)) {
 const positioning = new Positioning(teams);
 const players = positioning.allPlayers();
 
+const rally = new Rally(ball, teams, hud, () => serve.reset());
 // 目前固定由 home 隊右邊的人發球；輪流發球在第 5 階段規則加入
-const serve = new ServeController(ball, hud, aimMarker, teams.home[1], () => positioning.reset());
+const serve = new ServeController(ball, hud, aimMarker, teams.home[1], {
+  onReset: () => positioning.reset(),
+  onServe: (server) => rally.start(server),
+});
 const landing = new THREE.Vector3();
 
 function resize() {
@@ -60,21 +66,27 @@ renderer.setAnimationLoop((time) => {
   const dt = Math.min(timer.getDelta(), MAX_FRAME);
 
   serve.update(dt);
+  rally.update();
 
-  if (serve.state === 'flying' || serve.state === 'result') {
+  if (rally.state !== 'idle') {
     accumulator += dt;
     while (accumulator >= PHYSICS_STEP) {
-      serve.onBallEvents(stepBall(ball, PHYSICS_STEP));
+      rally.step(PHYSICS_STEP);
       accumulator -= PHYSICS_STEP;
     }
   } else {
     accumulator = 0;
   }
 
-  landingMarker.visible = serve.isBallInFlight && predictLanding(ball, landing) !== null;
+  // 輪到玩家擊球時顯示時機提示，其他時候顯示落點
+  const live = rally.state === 'live';
+  const plan = rally.plan;
+  timingCue.visible = live && plan !== null && rally.isHuman(plan.side);
+  if (timingCue.visible) timingCue.userData.update(plan.point.x, plan.point.z, plan.time - rally.time);
+  landingMarker.visible = live && !timingCue.visible && predictLanding(ball, landing) !== null;
   if (landingMarker.visible) landingMarker.position.set(landing.x, 0.03, landing.z);
 
-  positioning.update(landingMarker.visible ? landing : null, ball.pos);
+  positioning.update(plan, ball.pos, live);
   for (const p of players) p.update(dt);
 
   ball.syncMesh(dt);
