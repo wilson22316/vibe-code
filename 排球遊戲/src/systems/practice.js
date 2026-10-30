@@ -18,9 +18,11 @@ export const DRILLS = {
 // 發球、接球從發球開始；扣球、攔網從隊友舉球開始。做完該做的動作就讓 Rally 停止後續觸球（stopPlays），
 // 球落地或過一下子就換下一球
 export class Practice {
-  // slow：慢速；onResult(ok)：每一球判定成功或失敗時呼叫
-  constructor(drill, { teams, ball, rally, serve, positioning, hud, slow = false, onResult = () => {} }) {
+  // slow：慢速；title：資訊列改顯示這段文字（教學用）；onResult(ok)：每一球判定成功或失敗時呼叫
+  constructor(drill, { teams, ball, rally, serve, positioning, hud, slow = false, title = null, onResult = () => {} }) {
     this.drill = drill;
+    this.menuScreen = 'practice'; // 暫停選單「回到主畫面」時回到哪一頁
+    this.title = title;
     this.teams = teams;
     this.ball = ball;
     this.rally = rally;
@@ -131,6 +133,6 @@ export class Practice {
   }
 
   updatePanel() {
-    this.hud.setPractice({ name: this.name, success: this.success, tries: this.tries, slow: this.slow });
+    this.hud.setPractice({ title: this.title, name: this.name, success: this.success, tries: this.tries, slow: this.slow });
   }
 }

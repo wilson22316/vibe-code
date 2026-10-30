@@ -21,6 +21,7 @@ export const HUMAN_SIDES = [1];
 // blockRate：對方扣球時起跳攔網的機率與品質
 // speed：跑速倍率；smartAim：扣球時找空檔、看攔網的機率
 // powerChance：能量滿時這次扣球用強力擊球的機率；powerOnPerfect：只在完美扣球時用（抓時機）
+// straightSpike（只有練習用）：扣球一律直線打
 export const AI_LEVELS = {
   easy: {
     label: '簡單',
@@ -58,7 +59,8 @@ export const AI_LEVELS = {
     powerChance: 1,
     powerOnPerfect: true,
   },
-  // 練習模式用（不會出現在難度選單）：發球不失誤、不攔網、扣球隨機落點（不找空檔、不閃攔網）
+  // 練習模式與互動教學用（不會出現在難度選單）：發球不失誤、不攔網；
+  // 扣球一律直線打，練攔網時只要時機抓對就攔得到（隨機落點常常從攔網旁邊過去，時機對了也攔不到，練起來很挫折）
   practice: {
     label: '練習',
     perfectRate: 0.3,
@@ -68,6 +70,7 @@ export const AI_LEVELS = {
     serveFaultRate: 0,
     speed: 1,
     smartAim: 0,
+    straightSpike: true,
     powerChance: 0,
     powerOnPerfect: false,
   },

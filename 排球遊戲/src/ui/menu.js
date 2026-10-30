@@ -5,10 +5,11 @@ import { hud, replay } from './hud.js';
 const root = document.getElementById('menu');
 const hudRoot = document.getElementById('hud');
 const keysHint = document.getElementById('menu-keys');
+const SCROLL_STEP = 160; // 說明頁按一下上下鍵捲動的像素
 
 // 主畫面：Logo＋選單，以及子畫面（難度選擇、設定…）。
 // 每一頁是 HTML 裡的 .menu-screen：data-axis 決定用哪組方向鍵移動選擇（x 左右、y 上下）、
-// data-back 是按 Esc 回到哪一頁、data-default 是預設選第幾個、data-keys 是底部的按鍵提示。
+// data-back 是按 Esc 回到哪一頁、data-default 是預設選第幾個、data-keys 是底部的按鍵提示；頁面裡有 .scroll 的話上下鍵改成捲動它。
 // 按鈕：data-goto 切到別頁、data-action 呼叫 main.js 給的動作（data-value 當參數）、
 // data-adjust 也能用左右鍵調整、data-soon 還沒開放（顯示即將推出）、data-back 返回（只給滑鼠點）
 export class Menu {
@@ -101,7 +102,10 @@ export class Menu {
     if (!screen) return;
     const horizontal = screen.el.dataset.axis === 'x';
     const move = (input.wasPressed(horizontal ? 'right' : 'down') ? 1 : 0) - (input.wasPressed(horizontal ? 'left' : 'up') ? 1 : 0);
-    if (move !== 0) {
+    const scroller = screen.el.querySelector('.scroll'); // 說明頁：上下鍵捲動內容，不移動選擇
+    if (move !== 0 && scroller) {
+      scroller.scrollBy({ top: move * SCROLL_STEP, behavior: 'smooth' });
+    } else if (move !== 0) {
       this.select((screen.index + move + screen.items.length) % screen.items.length);
       sound.play('ui');
     }

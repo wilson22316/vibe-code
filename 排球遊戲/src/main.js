@@ -18,6 +18,7 @@ import { Positioning } from './systems/positioning.js';
 import { DRILLS, Practice } from './systems/practice.js';
 import { Rally } from './systems/rally.js';
 import { createAimMarker, ServeController } from './systems/serve.js';
+import { Tutorial } from './systems/tutorial.js';
 import { WarmUp } from './systems/warmup.js';
 import { Customizer, loadTeamLook, PREVIEW_VIEW } from './ui/customize.js';
 import { hud } from './ui/hud.js';
@@ -154,7 +155,7 @@ const landing = new THREE.Vector3();
 
 let level = 'normal';
 let inMenu = true;
-let practice = null; // 練習模式中：Practice
+let practice = null; // 練習模式中：Practice；互動教學中：Tutorial（用法相同）
 let practiceSlow = true; // 練習選單的「速度」：慢速（預設）或正常
 
 const onOff = (on) => (on ? '開' : '關');
@@ -170,6 +171,7 @@ const menu = new Menu(
     },
     music: () => menu.setValue('music', onOff(sound.toggleMusic())),
     practice: (drill) => startPractice(drill),
+    tutorial: () => startTutorial(),
     practiceSpeed: () => {
       practiceSlow = !practiceSlow;
       menu.setValue('practiceSpeed', practiceSlow ? '慢速' : '正常');
@@ -208,6 +210,7 @@ function openMenu(screen = 'main') {
   inMenu = true;
   practice = null;
   hud.setPractice(null);
+  hud.setTutorial(null);
   hud.setHint(null);
   hud.showGameOver(null);
   hud.showResult(null);
@@ -256,6 +259,26 @@ function startPractice(drill) {
     onResult: (ok) => ok && sound.play('success'),
   });
   hud.setHint(DRILLS[drill].hint);
+  practice.start();
+}
+
+// 互動教學：發球 → 接球 → 扣球 → 攔網，做對才進下一步，全部完成後慶祝並回到主畫面
+function startTutorial() {
+  leaveMenu('practice');
+  practice = new Tutorial(
+    { teams, ball, rally, serve, positioning, hud },
+    {
+      onResult: (ok) => ok && sound.play('success'),
+      onComplete: () => {
+        sound.play('win');
+        effects.celebrate(COURT_CENTER, true);
+      },
+      onDone: () => {
+        openMenu();
+        hud.toast('教學完成！可以開始比賽了');
+      },
+    },
+  );
   practice.start();
 }
 
@@ -312,7 +335,7 @@ function choosePause(option) {
     else startMatch();
   } else if (option === 'menu') {
     abortRally();
-    openMenu(practice ? 'practice' : 'main'); // 練習中回到練習選單，方便換項目
+    openMenu(practice ? practice.menuScreen : 'main'); // 練習（教學）中回到練習（教學）選單，方便換項目
   }
 }
 

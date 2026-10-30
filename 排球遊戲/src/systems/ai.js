@@ -49,6 +49,7 @@ export function aiServePower() {
 // 扣球落點 { x, depth }（depth 為離網距離）。
 // from：擊球位置；side：扣球方；defenders：對方球員；block：對方的攔網（Rally 的 plan.block）或 null
 export function aiSpikeTarget(from, side, defenders, block) {
+  if (level.straightSpike) return { x: from.x, depth: 6 }; // 練習：直線扣球
   if (Math.random() >= level.smartAim) {
     return { x: SPIKE_X[Math.floor(Math.random() * SPIKE_X.length)], depth: 5.5 + Math.random() * 1.5 };
   }

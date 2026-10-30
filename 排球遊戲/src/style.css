@@ -443,6 +443,306 @@ body {
   content: ' ›';
 }
 
+/* ---- 玩法說明：卡片排成兩欄，可捲動（滑鼠滾輪或上下鍵） ---- */
+#menu[data-screen='guide'] #logo {
+  display: none;
+}
+
+.guide-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  box-sizing: border-box;
+  width: min(860px, calc(100vw - 96px));
+  max-height: calc(100vh - 230px); /* 留位置給標題、返回按鈕和底部提示 */
+  overflow-y: auto;
+  padding-right: 6px;
+  pointer-events: auto;
+}
+
+@media (max-width: 899px) {
+  .guide-cards {
+    grid-template-columns: 1fr;
+    width: calc(100vw - 48px);
+  }
+}
+
+.guide-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  border-radius: 16px;
+  background: rgba(20, 40, 70, 0.78);
+  animation: item-in 0.3s ease-out backwards;
+  animation-delay: calc(var(--i, 0) * 50ms);
+}
+
+.guide-card.wide {
+  grid-column: 1 / -1;
+}
+
+.guide-card svg {
+  flex: none;
+  width: 120px;
+  height: 80px;
+}
+
+.guide-card h3 {
+  margin: 0 0 4px;
+  color: #ffd23f;
+  font-size: 18px;
+}
+
+.guide-card p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.guide-keys {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.guide-keys dt {
+  color: #ffd23f;
+  white-space: nowrap;
+}
+
+.guide-keys dd {
+  margin: 0;
+}
+
+.guide-card text {
+  font-weight: 800;
+  text-anchor: middle;
+}
+
+.guide-num {
+  fill: #fff;
+  font-size: 7px;
+}
+
+.guide-label {
+  fill: #fff;
+  font-size: 9px;
+}
+
+.guide-key {
+  fill: #1d2a4a;
+  font-size: 18px;
+}
+
+/* 提示圈：白色外圈縮到黃色內圈時跳出 PERFECT */
+.guide-cue {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: guide-cue 1.8s ease-in infinite;
+}
+
+.guide-perfect {
+  fill: #ffb800;
+  stroke: #fff;
+  stroke-width: 2.5;
+  paint-order: stroke;
+  font-size: 12px;
+  font-style: italic;
+  animation: guide-perfect 1.8s infinite;
+}
+
+@keyframes guide-cue {
+  from {
+    transform: scale(2.8);
+  }
+  75%,
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes guide-perfect {
+  0%,
+  74% {
+    opacity: 0;
+  }
+  78%,
+  100% {
+    opacity: 1;
+  }
+}
+
+/* 發球力道條來回擺動 */
+.guide-power {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: guide-power 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes guide-power {
+  from {
+    transform: scaleX(0.05);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* 準星在九宮格之間移動 */
+.guide-aim {
+  animation: guide-aim 4s ease-in-out infinite;
+}
+
+@keyframes guide-aim {
+  0%,
+  20%,
+  100% {
+    transform: translate(60px, 36px);
+  }
+  25%,
+  45% {
+    transform: translate(36px, 16px);
+  }
+  50%,
+  70% {
+    transform: translate(84px, 16px);
+  }
+  75%,
+  95% {
+    transform: translate(60px, 56px);
+  }
+}
+
+/* 攔網：雙手跳起來把球擋回去 */
+.guide-hands {
+  animation: guide-hands 1.6s ease-in-out infinite;
+}
+
+.guide-blocked {
+  animation: guide-blocked 1.6s linear infinite;
+}
+
+@keyframes guide-hands {
+  0%,
+  100% {
+    transform: translateY(10px);
+  }
+  40%,
+  60% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes guide-blocked {
+  0% {
+    opacity: 1;
+    transform: translate(104px, 4px);
+  }
+  45% {
+    transform: translate(59px, 13px);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(98px, -4px);
+  }
+}
+
+/* 能量格依序集滿 */
+.guide-energy rect {
+  fill: rgba(20, 40, 70, 0.6);
+  stroke: #fff;
+  stroke-width: 2;
+  animation: guide-energy 3s infinite;
+}
+
+.guide-energy rect:nth-child(2) {
+  animation-delay: 0.3s;
+}
+
+.guide-energy rect:nth-child(3) {
+  animation-delay: 0.6s;
+}
+
+.guide-energy rect:nth-child(4) {
+  animation-delay: 0.9s;
+}
+
+.guide-energy rect:nth-child(5) {
+  animation-delay: 1.2s;
+}
+
+@keyframes guide-energy {
+  0%,
+  10% {
+    fill: rgba(20, 40, 70, 0.6);
+  }
+  15%,
+  70% {
+    fill: #ffd23f;
+  }
+  80%,
+  100% {
+    fill: rgba(20, 40, 70, 0.6);
+  }
+}
+
+/* ---- 互動教學的說明卡：左上角，不擋到畫面中間的判定文字 ---- */
+#tutorial {
+  position: absolute;
+  top: 60px;
+  left: 16px;
+  width: min(330px, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: 10px 16px 12px;
+  border: 3px solid #fff;
+  border-radius: 18px;
+  background: rgba(20, 40, 70, 0.75);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.15);
+}
+
+#tutorial.show {
+  animation: tutorial-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+@keyframes tutorial-in {
+  from {
+    opacity: 0;
+    transform: translateX(-30px) scale(0.92);
+  }
+}
+
+.tutorial-step {
+  display: inline-block;
+  padding: 1px 12px;
+  border-radius: 999px;
+  background: #ff6b4a;
+  font-size: 13px;
+}
+
+.tutorial-title {
+  margin-top: 4px;
+  color: #ffd23f;
+  font-size: 26px;
+  -webkit-text-stroke: 4px #1d2a4a;
+  paint-order: stroke fill;
+}
+
+.tutorial-text {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
 /* 練習項目的說明（小字） */
 .menu-screen button .desc {
   display: block;

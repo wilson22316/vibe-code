@@ -17,6 +17,7 @@ const pauseOptions = [...document.querySelectorAll('#pause-options button')];
 const pauseButton = document.getElementById('pause-button');
 const hudRoot = document.getElementById('hud');
 const practicePanel = document.getElementById('practice-panel');
+const tutorialEl = document.getElementById('tutorial');
 const hintEl = document.getElementById('hint');
 const defaultHint = hintEl.textContent;
 
@@ -89,11 +90,22 @@ export const hud = {
     pauseButton.hidden = !visible;
   },
 
-  // 練習模式的資訊列（取代記分板）：{ name, success, tries, slow }；傳 null 回到比賽畫面
+  // 練習模式的資訊列（取代記分板）：{ name, success, tries, slow, title }，有 title 就顯示 title；傳 null 回到比賽畫面
   setPractice(info) {
     hudRoot.classList.toggle('practice', info !== null);
     practicePanel.hidden = info === null;
-    if (info) practicePanel.textContent = `${info.name}練習　成功 ${info.success} / ${info.tries}${info.slow ? '　·　慢速' : ''}`;
+    if (!info) return;
+    practicePanel.textContent = info.title ?? `${info.name}練習　成功 ${info.success} / ${info.tries}${info.slow ? '　·　慢速' : ''}`;
+  },
+
+  // 互動教學的說明卡：{ step, total, title, text }（step 從 1 開始；沒有 step 時是完成畫面）；傳 null 隱藏
+  setTutorial(info) {
+    tutorialEl.hidden = info === null;
+    if (!info) return;
+    tutorialEl.querySelector('.tutorial-step').textContent = info.step ? `第 ${info.step} 步／共 ${info.total} 步` : '完成';
+    tutorialEl.querySelector('.tutorial-title').textContent = info.title;
+    tutorialEl.querySelector('.tutorial-text').textContent = info.text;
+    replay(tutorialEl, 'show');
   },
 
   // 底部的操作提示；傳 null 恢復比賽用的提示
