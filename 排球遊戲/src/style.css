@@ -9,3 +9,76 @@ body {
 #app canvas {
   display: block;
 }
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+  font-weight: 800;
+  color: #fff;
+}
+
+#hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.55);
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+#power-bar {
+  position: absolute;
+  bottom: 64px;
+  left: 50%;
+  width: 260px;
+  height: 18px;
+  transform: translateX(-50%);
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.55);
+  overflow: hidden;
+}
+
+#power-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6ee36e, #ffd23f 60%, #ff5a3d);
+}
+
+#result {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 56px;
+  color: #ff5a3d;
+  -webkit-text-stroke: 3px #fff;
+  paint-order: stroke fill;
+  text-shadow: 0 6px 0 rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+
+#result.good {
+  color: #2fbf4f;
+}
+
+#result.pop {
+  animation: pop 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+@keyframes pop {
+  from {
+    transform: translateX(-50%) scale(0.3);
+  }
+  to {
+    transform: translateX(-50%) scale(1);
+  }
+}

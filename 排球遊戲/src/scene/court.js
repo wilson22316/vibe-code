@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { COURT } from '../config.js';
 
 const LINE_WIDTH = 0.08;
-const POST_OFFSET = 1; // 網柱在邊線外 1 公尺
-const NET_DEPTH = 1; // 網子上下高度
+const POST_OFFSET = COURT.postOffset;
+const NET_DEPTH = COURT.netDepth;
 const MESH_SIZE = 0.1; // 網目 10 公分
 
 export function createCourt() {
