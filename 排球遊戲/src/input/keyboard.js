@@ -14,6 +14,7 @@ const BINDINGS = {
   KeyD: 'right',
   KeyM: 'mute',
   KeyG: 'graphics',
+  KeyC: 'camera',
 };
 
 const down = new Set();

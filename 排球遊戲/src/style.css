@@ -96,9 +96,10 @@ body {
   font-size: 36px;
 }
 
-#menu,
-#pause {
-  pointer-events: auto; /* 可以用滑鼠點選 */
+/* 選單本身讓滑鼠穿過去（背後的場景可以拖曳轉鏡頭），只有按鈕可以點 */
+#menu button,
+#pause button {
+  pointer-events: auto;
 }
 
 #pause-title {
@@ -199,16 +200,21 @@ body {
   }
 }
 
+/* 提示很長，窄螢幕時自動換行，不要超出畫面 */
 #hint {
   position: absolute;
   bottom: 16px;
   left: 50%;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  box-sizing: border-box;
   transform: translateX(-50%);
   padding: 6px 16px;
-  border-radius: 999px;
+  border-radius: 16px;
   background: rgba(20, 40, 70, 0.55);
   font-size: 15px;
-  white-space: nowrap;
+  line-height: 1.5;
+  text-align: center;
 }
 
 #mute {

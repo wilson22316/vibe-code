@@ -11,10 +11,10 @@ const SLOW_TIME = 0.45; // 慢動作持續（真實秒數）
 const SHAKE_DECAY = 6;
 
 // 畫面特效：粒子、鏡頭震動、慢動作。全部用真實時間更新，不受慢動作影響。
+// 震動只算出位移（shakeOffset），由鏡頭控制疊加，不直接改鏡頭位置
 export class Effects {
-  constructor(scene, camera) {
-    this.camera = camera;
-    this.cameraBase = camera.position.clone();
+  constructor(scene) {
+    this.shakeOffset = new THREE.Vector3();
     this.dust = new ParticleSystem({ max: 300, size: 0.12, gravity: 9, drag: 0.2 });
     this.confetti = new ParticleSystem({ max: 400, size: 0.2, gravity: 1.6, drag: 0.15 });
     scene.add(this.dust.points, this.confetti.points);
@@ -54,6 +54,7 @@ export class Effects {
     this.confetti.clear();
     this.slowTimer = 0;
     this.shakeAmount = 0;
+    this.shakeOffset.set(0, 0, 0);
   }
 
   update(dt) {
@@ -63,10 +64,6 @@ export class Effects {
 
     this.shakeAmount *= Math.exp(-SHAKE_DECAY * dt);
     const a = this.shakeAmount;
-    this.camera.position.set(
-      this.cameraBase.x + (Math.random() - 0.5) * a,
-      this.cameraBase.y + (Math.random() - 0.5) * a,
-      this.cameraBase.z + (Math.random() - 0.5) * a,
-    );
+    this.shakeOffset.set((Math.random() - 0.5) * a, (Math.random() - 0.5) * a, (Math.random() - 0.5) * a);
   }
 }

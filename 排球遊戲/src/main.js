@@ -6,6 +6,7 @@ import { Player } from './entities/player.js';
 import { Effects } from './fx/effects.js';
 import { input } from './input/keyboard.js';
 import { createCamera } from './scene/camera.js';
+import { CameraRig } from './scene/cameraRig.js';
 import { createCourt } from './scene/court.js';
 import { createEnvironment } from './scene/environment.js';
 import { Graphics } from './scene/graphics.js';
@@ -49,7 +50,8 @@ const positioning = new Positioning(teams);
 const players = positioning.allPlayers();
 
 const match = new Match();
-const effects = new Effects(scene, camera);
+const effects = new Effects(scene);
+const rig = new CameraRig(camera, renderer.domElement);
 const COURT_CENTER = new THREE.Vector3(0, 0, 0);
 
 // 擊球、攔網、撞網、落地的特效與音效
@@ -245,6 +247,11 @@ renderer.setAnimationLoop((time) => {
 
   if (input.wasPressed('mute')) hud.setMuted(sound.toggleMute());
   if (input.wasPressed('graphics')) toggleGraphics();
+  if (input.wasPressed('camera')) {
+    rig.nextPreset();
+    hud.toast(`視角：${rig.presetName}`);
+    sound.play('ui');
+  }
 
   if (paused) {
     updatePause();
@@ -259,8 +266,9 @@ renderer.setAnimationLoop((time) => {
     if (match.winner && rally.state === 'idle' && input.wasPressed('action')) openMenu();
   }
 
-  // 暫停時整個場面定格（球、角色、粒子、慢動作都不動），只繼續畫畫面
+  // 暫停時整個場面定格（球、角色、粒子、慢動作都不動），鏡頭仍可轉動查看
   if (paused) {
+    rig.update(dt, effects.shakeOffset);
     input.endFrame();
     graphics.render();
     return;
@@ -290,6 +298,7 @@ renderer.setAnimationLoop((time) => {
 
   ball.syncMesh(simDt);
   effects.update(dt);
+  rig.update(dt, effects.shakeOffset);
   input.endFrame();
   graphics.render();
 });
