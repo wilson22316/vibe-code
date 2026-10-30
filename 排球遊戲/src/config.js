@@ -7,6 +7,14 @@ export const COURT = {
   postOffset: 1, // 網柱在邊線外 1 公尺
 };
 
+export const MATCH = {
+  points: 15, // 先到幾分
+  winBy: 2, // 至少領先幾分
+};
+
+// 由玩家操作的隊伍（1 = home）；本機雙人時加入 -1
+export const HUMAN_SIDES = [1];
+
 export const BALL = {
   radius: 0.15, // 實際約 0.105，放大一些讓畫面好讀
   gravity: 7, // 比真實 9.81 小，球飛得比較飄、好反應

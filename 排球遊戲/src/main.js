@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TEAMS } from './config.js';
+import { HUMAN_SIDES, TEAMS } from './config.js';
 import { Ball, createLandingMarker, createTimingCue } from './entities/ball.js';
 import { Player } from './entities/player.js';
 import { input } from './input/keyboard.js';
@@ -8,6 +8,7 @@ import { createCourt } from './scene/court.js';
 import { createEnvironment } from './scene/environment.js';
 import { createLights } from './scene/lights.js';
 import { predictLanding } from './systems/ballPhysics.js';
+import { Match } from './systems/match.js';
 import { Positioning } from './systems/positioning.js';
 import { Rally } from './systems/rally.js';
 import { createAimMarker, ServeController } from './systems/serve.js';
@@ -42,13 +43,30 @@ for (const [name, team] of Object.entries(TEAMS)) {
 const positioning = new Positioning(teams);
 const players = positioning.allPlayers();
 
-const rally = new Rally(ball, teams, hud, () => serve.reset());
-// 目前固定由 home 隊右邊的人發球；輪流發球在第 5 階段規則加入
-const serve = new ServeController(ball, hud, aimMarker, teams.home[1], {
+const match = new Match();
+const rally = new Rally(ball, teams, hud, {
+  onPoint: (side) => {
+    match.pointTo(side);
+    hud.setScore(match.score, match.servingSide);
+  },
+  onFinished: () => {
+    if (match.winner) hud.showGameOver({ win: HUMAN_SIDES.includes(match.winner), score: match.score });
+    else serve.reset(match.server(teams));
+  },
+});
+const serve = new ServeController(ball, hud, aimMarker, {
   onReset: () => positioning.reset(),
   onServe: (server) => rally.start(server),
 });
 const landing = new THREE.Vector3();
+
+function startMatch() {
+  match.reset();
+  hud.setScore(match.score, match.servingSide);
+  hud.showGameOver(null);
+  serve.reset(match.server(teams));
+}
+startMatch();
 
 function resize() {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -67,6 +85,8 @@ renderer.setAnimationLoop((time) => {
 
   serve.update(dt);
   rally.update();
+  // 一局結束、結果畫面出現後，按鍵再來一局
+  if (match.winner && rally.state === 'idle' && input.wasPressed('action')) startMatch();
 
   if (rally.state !== 'idle') {
     accumulator += dt;

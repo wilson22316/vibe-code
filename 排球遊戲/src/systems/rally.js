@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BALL, BLOCK, COURT, HIT } from '../config.js';
+import { BALL, BLOCK, COURT, HIT, HUMAN_SIDES } from '../config.js';
 import { JUMP_TIME } from '../entities/player.js';
 import { input } from '../input/keyboard.js';
 import {
@@ -15,7 +15,6 @@ import {
 import { closestTo, standSpot } from './positioning.js';
 
 const RESULT_TIME = 2;
-const HUMAN_SIDES = [1]; // 目前只有 home 由玩家操作；本機雙人時加入 -1
 // AI 基本參數，第 6 階段依難度調整
 const AI_PERFECT_RATE = 0.3;
 const AI_BAD_RATE = 0.08;
@@ -43,10 +42,12 @@ const ATTEMPTS = {
 // 一球的來回：預測下一次誰在哪裡碰球、判定按鍵時機、執行擊球、判定得分。
 // 球路是確定性的，所以每次擊球後就能算出下一次觸球的精確位置與時間（plan）。
 export class Rally {
-  constructor(ball, teams, hud, onFinished) {
+  // onPoint(winnerSide)：判定得分當下呼叫；onFinished()：結果顯示完畢後呼叫
+  constructor(ball, teams, hud, { onPoint, onFinished }) {
     this.ball = ball;
     this.sides = { 1: teams.home, [-1]: teams.away };
     this.hud = hud;
+    this.onPoint = onPoint;
     this.onFinished = onFinished;
     this.state = 'idle'; // idle（發球前）→ live（來回中）→ dead（顯示結果）
     this.plan = null;
@@ -352,5 +353,6 @@ export class Rally {
     this.plan = null;
     this.state = 'dead';
     this.resultTimer = RESULT_TIME;
+    this.onPoint(-loser);
   }
 }
