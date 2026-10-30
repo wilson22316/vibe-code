@@ -4,6 +4,9 @@ import { input } from '../input/keyboard.js';
 import { isInCourt, velocityToTarget } from './ballPhysics.js';
 
 const SERVE_SPOT = new THREE.Vector3(1.5, 0, COURT.length / 2 + 0.8);
+// 發球員站在球的左後方，球在右手邊，鏡頭從後面看才不會被身體擋住
+const SERVER_OFFSET_X = -0.45;
+const SERVER_OFFSET_Z = 0.25;
 const HOLD_HEIGHT = 1.2;
 const HIT_HEIGHT = 2.6;
 const CHARGE_TIME = 1.1; // 力道從 0 到滿的秒數，之後來回擺盪
@@ -14,15 +17,20 @@ const RESULT_TIME = 1.8;
 // 第 2 階段的發球測試流程：準備 → 蓄力 → 飛行 → 顯示判定 → 重來。
 // 第 5 階段加入規則與計分後，流程會交給規則系統管理。
 export class ServeController {
-  constructor(ball, hud, aimMarker) {
+  // onReset：每球重來時呼叫（讓其他角色回站位），在發球員就位之前執行
+  constructor(ball, hud, aimMarker, server, onReset) {
     this.ball = ball;
     this.hud = hud;
     this.aimMarker = aimMarker;
+    this.server = server;
+    this.onReset = onReset;
     this.aimX = 0;
     this.reset();
   }
 
   reset() {
+    this.onReset();
+    this.server.resetTo(SERVE_SPOT.x + SERVER_OFFSET_X, SERVE_SPOT.z + SERVER_OFFSET_Z);
     this.state = 'ready';
     this.charge = 0;
     this.flags = { net: false, outsideAntenna: false };
@@ -69,6 +77,7 @@ export class ServeController {
 
     this.ball.pos.set(SERVE_SPOT.x, HIT_HEIGHT, SERVE_SPOT.z);
     velocityToTarget(this.ball.pos, target, apex, this.ball.vel);
+    this.server.playSwing();
 
     this.state = 'flying';
     this.hud.setPower(null);

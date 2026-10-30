@@ -13,3 +13,28 @@ export const BALL = {
   bounce: 0.35, // 沙地反彈係數
   friction: 0.6, // 每次觸地水平速度保留比例
 };
+
+export const PLAYER = {
+  speed: 5.5, // 最高跑速（公尺/秒）
+  turnSpeed: 12, // 轉身速度
+};
+
+// 兩隊：home 在 +z（玩家方），away 在 -z。base 為每次發球前的站位。
+export const TEAMS = {
+  home: {
+    side: 1,
+    shirt: 0xff6b4a,
+    members: [
+      { base: [-2, 5], skin: 0xffd7b5, hair: 0x3b2a20 },
+      { base: [2, 5], skin: 0xf1c08f, hair: 0xe0a33a },
+    ],
+  },
+  away: {
+    side: -1,
+    shirt: 0x5b6cff,
+    members: [
+      { base: [-2, -5], skin: 0xe7b48a, hair: 0x1f1f2e },
+      { base: [2, -5], skin: 0xffe0c4, hair: 0xc4473a },
+    ],
+  },
+};

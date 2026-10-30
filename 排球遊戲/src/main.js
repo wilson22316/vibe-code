@@ -1,11 +1,14 @@
 import * as THREE from 'three';
+import { TEAMS } from './config.js';
 import { Ball, createLandingMarker } from './entities/ball.js';
+import { Player } from './entities/player.js';
 import { input } from './input/keyboard.js';
 import { createCamera } from './scene/camera.js';
 import { createCourt } from './scene/court.js';
 import { createEnvironment } from './scene/environment.js';
 import { createLights } from './scene/lights.js';
 import { predictLanding, stepBall } from './systems/ballPhysics.js';
+import { Positioning } from './systems/positioning.js';
 import { createAimMarker, ServeController } from './systems/serve.js';
 import { hud } from './ui/hud.js';
 
@@ -15,7 +18,7 @@ const MAX_FRAME = 0.1; // 分頁切回來時避免一次補太多步
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.getElementById('app').appendChild(renderer.domElement);
 
@@ -29,7 +32,16 @@ const landingMarker = createLandingMarker();
 const aimMarker = createAimMarker();
 scene.add(ball.mesh, landingMarker, aimMarker);
 
-const serve = new ServeController(ball, hud, aimMarker);
+const teams = {};
+for (const [name, team] of Object.entries(TEAMS)) {
+  teams[name] = team.members.map((m) => new Player({ team, shirt: team.shirt, ...m }));
+  for (const p of teams[name]) scene.add(p.mesh);
+}
+const positioning = new Positioning(teams);
+const players = positioning.allPlayers();
+
+// 目前固定由 home 隊右邊的人發球；輪流發球在第 5 階段規則加入
+const serve = new ServeController(ball, hud, aimMarker, teams.home[1], () => positioning.reset());
 const landing = new THREE.Vector3();
 
 function resize() {
@@ -40,11 +52,12 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-const clock = new THREE.Clock();
+const timer = new THREE.Timer();
 let accumulator = 0;
 
-renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), MAX_FRAME);
+renderer.setAnimationLoop((time) => {
+  timer.update(time);
+  const dt = Math.min(timer.getDelta(), MAX_FRAME);
 
   serve.update(dt);
 
@@ -60,6 +73,9 @@ renderer.setAnimationLoop(() => {
 
   landingMarker.visible = serve.isBallInFlight && predictLanding(ball, landing) !== null;
   if (landingMarker.visible) landingMarker.position.set(landing.x, 0.03, landing.z);
+
+  positioning.update(landingMarker.visible ? landing : null, ball.pos);
+  for (const p of players) p.update(dt);
 
   ball.syncMesh(dt);
   input.endFrame();
