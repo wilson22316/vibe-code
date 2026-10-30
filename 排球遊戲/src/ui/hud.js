@@ -9,6 +9,8 @@ const teamAway = document.querySelector('#scoreboard .away');
 const gameOver = document.getElementById('game-over');
 const gameOverTitle = document.getElementById('game-over-title');
 const gameOverScore = document.getElementById('game-over-score');
+const menu = document.getElementById('menu');
+const levelButtons = [...document.querySelectorAll('#levels button')];
 
 const JUDGE_TEXT = {
   perfect: 'PERFECT!',
@@ -27,6 +29,17 @@ function replay(el, className) {
 }
 
 export const hud = {
+  // 難度選單：selected 為 'easy' | 'normal' | 'hard'；傳 null 隱藏
+  showMenu(selected) {
+    menu.hidden = selected === null;
+    for (const b of levelButtons) b.classList.toggle('selected', b.dataset.level === selected);
+  },
+
+  // 滑鼠點選難度
+  onLevelClick(callback) {
+    for (const b of levelButtons) b.addEventListener('click', () => callback(b.dataset.level));
+  },
+
   // score：{ 1: home 分數, -1: away 分數 }；servingSide：1 或 -1
   setScore(score, servingSide) {
     scoreHome.textContent = score[1];

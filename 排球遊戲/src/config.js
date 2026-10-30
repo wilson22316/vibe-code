@@ -15,6 +15,44 @@ export const MATCH = {
 // 由玩家操作的隊伍（1 = home）；本機雙人時加入 -1
 export const HUMAN_SIDES = [1];
 
+// 電腦對手難度
+// perfectRate / badRate：每次觸球打出 Perfect / Bad 的機率
+// digChance：接得起對方扣球（或完美攔網）的機率，依來球品質
+// blockRate：對方扣球時起跳攔網的機率與品質
+// speed：跑速倍率；smartAim：扣球時找空檔、看攔網的機率
+export const AI_LEVELS = {
+  easy: {
+    label: '簡單',
+    perfectRate: 0.1,
+    badRate: 0.2,
+    digChance: { perfect: 0.15, good: 0.4, bad: 0.7 },
+    blockRate: { perfect: 0.05, good: 0.1 },
+    serveFaultRate: 0.2,
+    speed: 0.85,
+    smartAim: 0,
+  },
+  normal: {
+    label: '普通',
+    perfectRate: 0.3,
+    badRate: 0.08,
+    digChance: { perfect: 0.5, good: 0.82, bad: 0.92 },
+    blockRate: { perfect: 0.15, good: 0.25 },
+    serveFaultRate: 0.1,
+    speed: 1,
+    smartAim: 0.3,
+  },
+  hard: {
+    label: '困難',
+    perfectRate: 0.5,
+    badRate: 0.03,
+    digChance: { perfect: 0.72, good: 0.92, bad: 0.96 },
+    blockRate: { perfect: 0.25, good: 0.3 },
+    serveFaultRate: 0.05,
+    speed: 1.05,
+    smartAim: 0.6,
+  },
+};
+
 export const BALL = {
   radius: 0.15, // 實際約 0.105，放大一些讓畫面好讀
   gravity: 7, // 比真實 9.81 小，球飛得比較飄、好反應
@@ -27,6 +65,8 @@ export const HIT = {
   windows: { perfect: 0.07, good: 0.18, bad: 0.35 }, // 時機判定（秒，與理想觸球時間的差）
   reach: 0.9, // 角色離理想站位多遠以內還碰得到球
   standBehind: 0.35, // 站在觸球點後方（遠離網子）多少
+  digReaction: 0.2, // 對方扣球過來時，防守員要先判斷球路才起動（秒）
+  hardDigWindow: { perfect: 0.5, good: 0.75, bad: 1 }, // 接扣球時判定時窗的倍率（依來球品質），球越快越難接
   setSpotZ: 2.2, // 墊球送到離網多遠讓隊友舉
   spikeSpotZ: 1.6, // 舉球送到離網多遠讓隊友扣
 };

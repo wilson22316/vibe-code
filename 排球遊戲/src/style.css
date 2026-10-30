@@ -67,6 +67,7 @@ body {
   visibility: visible;
 }
 
+#menu,
 #game-over {
   position: absolute;
   inset: 0;
@@ -94,6 +95,47 @@ body {
   font-size: 36px;
 }
 
+#menu {
+  pointer-events: auto; /* 可以用滑鼠點難度 */
+}
+
+#menu-title {
+  font-size: 64px;
+  color: #ffd23f;
+  -webkit-text-stroke: 4px #fff;
+  paint-order: stroke fill;
+  text-shadow: 0 6px 0 rgba(0, 0, 0, 0.15);
+}
+
+#menu-sub {
+  font-size: 22px;
+}
+
+#levels {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+#levels button {
+  min-width: 108px;
+  padding: 10px 18px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.55);
+  color: #fff;
+  font: inherit;
+  font-size: 22px;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+
+#levels button.selected {
+  background: #ff6b4a;
+  transform: scale(1.12);
+}
+
+#menu .again,
 #game-over .again {
   margin-top: 12px;
   padding: 6px 18px;

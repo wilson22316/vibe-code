@@ -8,6 +8,7 @@ import { createCourt } from './scene/court.js';
 import { createEnvironment } from './scene/environment.js';
 import { createLights } from './scene/lights.js';
 import { predictLanding } from './systems/ballPhysics.js';
+import { aiLevel, setAiLevel } from './systems/ai.js';
 import { Match } from './systems/match.js';
 import { Positioning } from './systems/positioning.js';
 import { Rally } from './systems/rally.js';
@@ -60,13 +61,45 @@ const serve = new ServeController(ball, hud, aimMarker, {
 });
 const landing = new THREE.Vector3();
 
+const LEVELS = ['easy', 'normal', 'hard'];
+let levelIndex = 1;
+let inMenu = true;
+
+function openMenu() {
+  inMenu = true;
+  hud.showGameOver(null);
+  hud.showMenu(LEVELS[levelIndex]);
+}
+
 function startMatch() {
+  inMenu = false;
+  hud.showMenu(null);
+  setAiLevel(LEVELS[levelIndex]);
+  for (const p of teams.away) p.speedScale = aiLevel().speed;
   match.reset();
   hud.setScore(match.score, match.servingSide);
-  hud.showGameOver(null);
   serve.reset(match.server(teams));
 }
-startMatch();
+
+function updateMenu() {
+  const dir = (input.wasPressed('right') ? 1 : 0) - (input.wasPressed('left') ? 1 : 0);
+  if (dir !== 0) {
+    levelIndex = (levelIndex + dir + LEVELS.length) % LEVELS.length;
+    hud.showMenu(LEVELS[levelIndex]);
+  }
+  if (input.wasPressed('action')) startMatch();
+}
+
+hud.onLevelClick((level) => {
+  levelIndex = LEVELS.indexOf(level);
+  startMatch();
+});
+
+// 選單背後先擺好發球前的場景
+match.reset();
+hud.setScore(match.score, match.servingSide);
+serve.reset(match.server(teams));
+openMenu();
 
 function resize() {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -83,10 +116,14 @@ renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_FRAME);
 
-  serve.update(dt);
-  rally.update();
-  // 一局結束、結果畫面出現後，按鍵再來一局
-  if (match.winner && rally.state === 'idle' && input.wasPressed('action')) startMatch();
+  if (inMenu) {
+    updateMenu();
+  } else {
+    serve.update(dt);
+    rally.update();
+    // 一局結束、結果畫面出現後，按鍵回到選單
+    if (match.winner && rally.state === 'idle' && input.wasPressed('action')) openMenu();
+  }
 
   if (rally.state !== 'idle') {
     accumulator += dt;
@@ -107,7 +144,7 @@ renderer.setAnimationLoop((time) => {
   landingMarker.visible = live && !timingCue.visible && predictLanding(ball, landing) !== null;
   if (landingMarker.visible) landingMarker.position.set(landing.x, 0.03, landing.z);
 
-  positioning.update(plan, ball.pos, live);
+  positioning.update(plan, ball.pos, live, rally.time);
   for (const p of players) p.update(dt);
 
   ball.syncMesh(dt);

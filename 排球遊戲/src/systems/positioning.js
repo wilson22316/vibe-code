@@ -19,8 +19,8 @@ export class Positioning {
     }
   }
 
-  // plan：Rally 的觸球計畫或 null；live：來回進行中（大家盯著球）
-  update(plan, ballPos, live) {
+  // plan：Rally 的觸球計畫或 null；live：來回進行中（大家盯著球）；time：Rally 的時間
+  update(plan, ballPos, live, time) {
     for (const p of this.allPlayers()) p.facing = live ? ballPos : null;
     if (!plan) return;
 
@@ -29,6 +29,7 @@ export class Positioning {
     const teammate = team.find((p) => p !== hitter);
 
     if (plan.leave) hitter.moveTo(hitter.base.x, hitter.base.z);
+    else if (time < plan.moveAt) hitter.moveTo(hitter.pos.x, hitter.pos.z); // 還在反應，原地不動
     else {
       const spot = standSpot(plan);
       hitter.moveTo(spot.x, spot.z);

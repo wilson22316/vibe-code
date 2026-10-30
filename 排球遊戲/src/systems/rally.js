@@ -12,24 +12,22 @@ import {
   velocityToTarget,
   willHitNet,
 } from './ballPhysics.js';
+import { aiBlockGrade, aiHitGrade, aiSpikeTarget } from './ai.js';
 import { closestTo, standSpot } from './positioning.js';
 
 const RESULT_TIME = 2;
-// AI 基本參數，第 6 階段依難度調整
-const AI_PERFECT_RATE = 0.3;
-const AI_BAD_RATE = 0.08;
-const AI_DIG_CHANCE = { perfect: 0.35, good: 0.7, bad: 0.9 }; // 接得起對方扣球的機率（依扣球品質）
-const AI_BLOCK_RATE = { perfect: 0.15, good: 0.25 }; // 起跳攔網的機率與品質
 const BLOCK_MAX_NET_DIST = 1; // 攔網員離網超過這距離就攔不到（還沒跑到位）
 const SPIKE_TIME = { perfect: 0.5, good: 0.7, bad: 0.6 }; // 扣球飛行秒數，越短越快
 const ERROR = { perfect: 0, good: 0.8, bad: 2.5 }; // 落點隨機誤差（公尺）
+const HARD_BALL_BAD_ERROR = 5;
 const SPIKE_AIM_X = 2.8;
 
-// early：離理想時間還有幾秒（負數為晚按）。太早回傳 null（當作沒按）。
-function gradeTiming(early) {
-  if (early > HIT.windows.bad) return null;
+// early：離理想時間還有幾秒（負數為晚按）；scale：時窗倍率。太早回傳 null（當作沒按）。
+function gradeTiming(early, scale = 1) {
+  const { perfect, good, bad } = HIT.windows;
+  if (early > bad) return null;
   const diff = Math.abs(early);
-  return diff <= HIT.windows.perfect ? 'perfect' : diff <= HIT.windows.good ? 'good' : 'bad';
+  return diff <= perfect * scale ? 'perfect' : diff <= good * scale ? 'good' : 'bad';
 }
 
 // 第幾次觸球 → 依序嘗試的 [擊球類型, 觸球高度]；球不夠高時降級
@@ -119,7 +117,11 @@ export class Rally {
       if (t === null || (point.z > 0 ? 1 : -1) !== side) continue;
 
       const hitter = touch === 1 ? closestTo(team, point) : team.find((p) => p !== this.lastHitter);
-      this.plan = { side, touch, type, point, time: this.time + t, hitter, grade: null, jumped: false, leave: false };
+      // 接扣球：防守員要反應一下才起動；扣球和完美攔網蓋下來的球比較難接
+      const moveAt = this.time + (this.lastType === 'spike' ? HIT.digReaction : 0);
+      const hardBall = touch === 1 && (this.lastType === 'spike' || (this.lastType === 'block' && this.lastGrade === 'perfect'));
+      const windowScale = hardBall ? HIT.hardDigWindow[this.lastGrade] : 1;
+      this.plan = { side, touch, type, point, time: this.time + t, moveAt, hitter, hardBall, windowScale, grade: null, jumped: false, leave: false };
       if (!this.isHuman(side)) this.decideAi(this.plan);
       if (type === 'spike') this.plan.block = this.makeBlock(this.plan);
       return;
@@ -135,11 +137,7 @@ export class Rally {
       jumped: false,
       idealTime: plan.time - BLOCK.lead,
     };
-    if (!this.isHuman(defendSide)) {
-      const r = Math.random();
-      if (r < AI_BLOCK_RATE.perfect) block.grade = 'perfect';
-      else if (r < AI_BLOCK_RATE.perfect + AI_BLOCK_RATE.good) block.grade = 'good';
-    }
+    if (!this.isHuman(defendSide)) block.grade = aiBlockGrade();
     return block;
   }
 
@@ -155,7 +153,7 @@ export class Rally {
     return null;
   }
 
-  // AI：一傳看到會出界就不碰；接扣球有機率漏接；其餘照機率決定擊球品質
+  // AI：一傳看到會出界就不碰；其餘依難度決定擊球品質或漏接（grade 為 null，時間到就當沒碰到）
   decideAi(plan) {
     if (plan.touch === 1) {
       const landing = predictLanding(this.ball, new THREE.Vector3());
@@ -163,12 +161,8 @@ export class Rally {
         plan.leave = true;
         return;
       }
-      // 漏接：不給 grade，時間到就當沒碰到。完美攔網蓋下來的球跟扣球一樣難接
-      const hardBall = this.lastType === 'spike' || (this.lastType === 'block' && this.lastGrade === 'perfect');
-      if (hardBall && Math.random() > AI_DIG_CHANCE[this.lastGrade]) return;
     }
-    const r = Math.random();
-    plan.grade = r < AI_BAD_RATE ? 'bad' : r < AI_BAD_RATE + AI_PERFECT_RATE ? 'perfect' : 'good';
+    plan.grade = aiHitGrade(plan.hardBall, this.lastGrade);
   }
 
   press() {
@@ -187,7 +181,7 @@ export class Rally {
 
     if (!this.isHuman(plan.side) || plan.grade) return;
     const early = plan.time - this.time; // 正數：提早按
-    const grade = gradeTiming(early);
+    const grade = gradeTiming(early, plan.windowScale);
     if (!grade) return; // 太早，當作沒按，可以再按一次
     plan.grade = grade;
     if (early <= 0) this.hit(); // 晚按：馬上擊球
@@ -284,9 +278,10 @@ export class Rally {
     return true;
   }
 
-  shoot({ side, type, grade, hitter }) {
+  shoot({ side, type, grade, hitter, block, hardBall }) {
     const ball = this.ball;
-    const err = ERROR[grade];
+    // 重球沒接好會彈得更亂，通常就救不回來了
+    const err = hardBall && grade === 'bad' ? HARD_BALL_BAD_ERROR : ERROR[grade];
     const jitter = () => (Math.random() * 2 - 1) * err;
     const target = new THREE.Vector3();
 
@@ -300,7 +295,10 @@ export class Rally {
       target.set(spiker.base.x * 0.9 + jitter(), HIT.heights.spike, side * HIT.spikeSpotZ + jitter() * 0.5);
       velocityToTarget(ball.pos, target, 5, ball.vel);
     } else if (type === 'spike') {
-      target.set(this.spikeAimX(side) + jitter(), BALL.radius, -side * (5.5 + Math.random() * 1.5) + jitter());
+      const aim = this.isHuman(side)
+        ? { x: this.spikeAimX(), depth: 5.5 + Math.random() * 1.5 }
+        : aiSpikeTarget(ball.pos, side, this.sides[-side], block ?? null);
+      target.set(aim.x + jitter(), BALL.radius, -side * aim.depth + jitter());
       let time = SPIKE_TIME[grade];
       velocityForTime(ball.pos, target, time, ball.vel);
       // 好球保證過網：太平就放慢、拋高一點；壞球不保證
@@ -315,14 +313,11 @@ export class Rally {
     }
   }
 
-  spikeAimX(side) {
-    if (this.isHuman(side)) {
-      // 鏡頭在 home 後方：螢幕左 = -x
-      const dir = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
-      if (dir !== 0) return dir * SPIKE_AIM_X;
-      return -Math.sign(this.ball.pos.x || 1) * 2; // 沒按方向：打斜線
-    }
-    return [-SPIKE_AIM_X, 0, SPIKE_AIM_X][Math.floor(Math.random() * 3)];
+  // 玩家扣球方向；鏡頭在 home 後方：螢幕左 = -x
+  spikeAimX() {
+    const dir = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
+    if (dir !== 0) return dir * SPIKE_AIM_X;
+    return -Math.sign(this.ball.pos.x || 1) * 2; // 沒按方向：打斜線
   }
 
   endPoint() {

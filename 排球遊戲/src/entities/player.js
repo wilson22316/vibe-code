@@ -17,6 +17,7 @@ export class Player {
     this.heading = team.side > 0 ? Math.PI : 0; // 面向網子
     this.facing = null; // 停下來時要看的點；null 表示看向網子
     this.runAmount = 0;
+    this.speedScale = 1; // 跑速倍率（電腦難度用）
     this.phase = 0;
     this.time = Math.random() * 10;
     this.action = null;
@@ -60,7 +61,7 @@ export class Player {
 
     let speed = 0;
     if (dist > ARRIVE_RADIUS) {
-      speed = PLAYER.speed * Math.min(1, dist / SLOW_RADIUS);
+      speed = PLAYER.speed * this.speedScale * Math.min(1, dist / SLOW_RADIUS);
       const step = Math.min(dist, speed * dt);
       this.pos.x += (dx / dist) * step;
       this.pos.z += (dz / dist) * step;

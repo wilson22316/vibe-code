@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BALL, COURT, HUMAN_SIDES } from '../config.js';
 import { input } from '../input/keyboard.js';
+import { aiServePower } from './ai.js';
 import { velocityToTarget } from './ballPhysics.js';
 
 const SERVE_X = 1.5;
@@ -14,9 +15,8 @@ const CHARGE_TIME = 1.1; // 力道從 0 到滿的秒數，之後來回擺盪
 const AIM_SPEED = 4;
 const AIM_LIMIT = COURT.width / 2 + 1;
 
-// AI 發球：等一下再發，大多落在界內，偶爾失誤
+// AI 發球：等一下再發；力道（含失誤率）依難度
 const AI_SERVE_DELAY = 1.2;
-const AI_FAULT_RATE = 0.1;
 const AI_AIM_LIMIT = 3.2;
 
 // 發球：準備 → 蓄力 → 發出（之後交給 Rally）。AI 隊伍則自動發球。
@@ -82,13 +82,9 @@ export class ServeController {
     this.aimMarker.position.set(this.aimX, 0.02, -this.side * (COURT.length / 4));
   }
 
-  // 力道約 0.33～0.67 會落在界內（見 launch 的換算）
   aiServe() {
-    let power;
-    if (Math.random() < AI_FAULT_RATE) power = Math.random() < 0.5 ? 0.1 + Math.random() * 0.15 : 0.72 + Math.random() * 0.18;
-    else power = 0.38 + Math.random() * 0.26;
     this.aimX = (Math.random() * 2 - 1) * AI_AIM_LIMIT;
-    this.launch(power);
+    this.launch(aiServePower());
   }
 
   launch(power) {
