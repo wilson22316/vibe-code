@@ -41,12 +41,14 @@ const ATTEMPTS = {
 // 球路是確定性的，所以每次擊球後就能算出下一次觸球的精確位置與時間（plan）。
 export class Rally {
   // onPoint(winnerSide)：判定得分當下呼叫；onFinished()：結果顯示完畢後呼叫
-  constructor(ball, teams, hud, { onPoint, onFinished }) {
+  // onEvent(name, data)：給特效與音效用，'hit' | 'block' | 'net' | 'land'
+  constructor(ball, teams, hud, { onPoint, onFinished, onEvent = () => {} }) {
     this.ball = ball;
     this.sides = { 1: teams.home, [-1]: teams.away };
     this.hud = hud;
     this.onPoint = onPoint;
     this.onFinished = onFinished;
+    this.onEvent = onEvent;
     this.state = 'idle'; // idle（發球前）→ live（來回中）→ dead（顯示結果）
     this.plan = null;
     this.time = 0;
@@ -90,9 +92,11 @@ export class Rally {
     if (events.includes('outsideAntenna')) this.flags.outsideAntenna = true;
     if (events.includes('net')) {
       this.flags.net = true;
+      this.onEvent('net');
       this.replan();
     }
     if (events.includes('ground')) {
+      this.onEvent('land', { pos: this.ball.pos.clone(), lastType: this.lastType });
       this.endPoint();
       return;
     }
@@ -227,9 +231,11 @@ export class Rally {
       return;
     }
 
+    const contact = this.ball.pos.clone();
     this.shoot(plan);
     hitter.playAction(type === 'spike' ? 'swing' : plan.point.y < 1.5 ? 'bump' : 'set');
     if (this.isHuman(side)) this.hud.showJudge(grade);
+    this.onEvent('hit', { type, grade, human: this.isHuman(side), pos: contact });
 
     if (type === 'spike' && this.tryBlock(plan)) return;
     this.touched(hitter, type, grade, plan.touch);
@@ -273,6 +279,7 @@ export class Rally {
     }
 
     if (this.isHuman(blocker.team.side)) this.hud.showJudge('block');
+    this.onEvent('block', { grade, human: this.isHuman(blocker.team.side), pos: ball.pos.clone() });
     // 攔網不算三次觸球之一，對方重新算三次
     this.touched(blocker, 'block', grade, 0);
     return true;

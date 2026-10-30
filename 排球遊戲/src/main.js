@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { HUMAN_SIDES, TEAMS } from './config.js';
+import { sound } from './audio/sound.js';
 import { Ball, createLandingMarker, createTimingCue } from './entities/ball.js';
 import { Player } from './entities/player.js';
+import { Effects } from './fx/effects.js';
 import { input } from './input/keyboard.js';
 import { createCamera } from './scene/camera.js';
 import { createCourt } from './scene/court.js';
@@ -45,19 +47,63 @@ const positioning = new Positioning(teams);
 const players = positioning.allPlayers();
 
 const match = new Match();
+const effects = new Effects(scene, camera);
+const COURT_CENTER = new THREE.Vector3(0, 0, 0);
+
+// 擊球、攔網、撞網、落地的特效與音效
+function onRallyEvent(name, data) {
+  if (name === 'hit') {
+    sound.play(data.type === 'spike' ? 'spike' : data.type === 'set' ? 'set' : 'bump');
+    if (data.human && data.grade === 'perfect') sound.play('perfect');
+    effects.hit(data.pos, data.grade);
+    if (data.type === 'spike') {
+      effects.shake(data.grade === 'perfect' ? 0.25 : 0.12);
+      // 只有玩家的完美扣球放慢動作：對手扣球放慢會讓接球變簡單
+      if (data.human && data.grade === 'perfect') effects.slowMo();
+    }
+  } else if (name === 'block') {
+    sound.play('block');
+    effects.hit(data.pos, data.grade);
+    effects.shake(0.3);
+  } else if (name === 'net') {
+    sound.play('net');
+  } else if (name === 'land') {
+    const hard = data.lastType === 'spike' || data.lastType === 'block';
+    sound.play('land');
+    effects.sand(data.pos, hard ? 1.6 : 1);
+    if (hard) effects.shake(0.2);
+  }
+}
+
 const rally = new Rally(ball, teams, hud, {
   onPoint: (side) => {
     match.pointTo(side);
     hud.setScore(match.score, match.servingSide);
+    sound.play('whistle');
+    if (HUMAN_SIDES.includes(side)) {
+      sound.play('cheer');
+      effects.celebrate(ball.pos);
+    }
   },
   onFinished: () => {
-    if (match.winner) hud.showGameOver({ win: HUMAN_SIDES.includes(match.winner), score: match.score });
-    else serve.reset(match.server(teams));
+    if (match.winner) {
+      const win = HUMAN_SIDES.includes(match.winner);
+      hud.showGameOver({ win, score: match.score });
+      sound.play(win ? 'win' : 'lose');
+      if (win) effects.celebrate(COURT_CENTER, true);
+    } else {
+      serve.reset(match.server(teams));
+    }
   },
+  onEvent: onRallyEvent,
 });
 const serve = new ServeController(ball, hud, aimMarker, {
   onReset: () => positioning.reset(),
-  onServe: (server) => rally.start(server),
+  onServe: (server) => {
+    sound.play('serve');
+    effects.hit(ball.pos, 'good');
+    rally.start(server);
+  },
 });
 const landing = new THREE.Vector3();
 
@@ -86,12 +132,17 @@ function updateMenu() {
   if (dir !== 0) {
     levelIndex = (levelIndex + dir + LEVELS.length) % LEVELS.length;
     hud.showMenu(LEVELS[levelIndex]);
+    sound.play('ui');
   }
-  if (input.wasPressed('action')) startMatch();
+  if (input.wasPressed('action')) {
+    sound.play('ui');
+    startMatch();
+  }
 }
 
 hud.onLevelClick((level) => {
   levelIndex = LEVELS.indexOf(level);
+  sound.play('ui');
   startMatch();
 });
 
@@ -115,6 +166,9 @@ let accumulator = 0;
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_FRAME);
+  const simDt = dt * effects.timeScale; // 慢動作時球與角色變慢
+
+  if (input.wasPressed('mute')) hud.setMuted(sound.toggleMute());
 
   if (inMenu) {
     updateMenu();
@@ -126,7 +180,7 @@ renderer.setAnimationLoop((time) => {
   }
 
   if (rally.state !== 'idle') {
-    accumulator += dt;
+    accumulator += simDt;
     while (accumulator >= PHYSICS_STEP) {
       rally.step(PHYSICS_STEP);
       accumulator -= PHYSICS_STEP;
@@ -145,9 +199,10 @@ renderer.setAnimationLoop((time) => {
   if (landingMarker.visible) landingMarker.position.set(landing.x, 0.03, landing.z);
 
   positioning.update(plan, ball.pos, live, rally.time);
-  for (const p of players) p.update(dt);
+  for (const p of players) p.update(simDt);
 
-  ball.syncMesh(dt);
+  ball.syncMesh(simDt);
+  effects.update(dt);
   input.endFrame();
   renderer.render(scene, camera);
 });

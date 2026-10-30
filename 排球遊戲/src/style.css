@@ -162,6 +162,16 @@ body {
   white-space: nowrap;
 }
 
+#mute {
+  position: absolute;
+  top: 18px;
+  right: 16px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.55);
+  font-size: 14px;
+}
+
 #power-bar {
   position: absolute;
   bottom: 64px;

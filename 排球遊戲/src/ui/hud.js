@@ -10,6 +10,7 @@ const gameOver = document.getElementById('game-over');
 const gameOverTitle = document.getElementById('game-over-title');
 const gameOverScore = document.getElementById('game-over-score');
 const menu = document.getElementById('menu');
+const muteBadge = document.getElementById('mute');
 const levelButtons = [...document.querySelectorAll('#levels button')];
 
 const JUDGE_TEXT = {
@@ -33,6 +34,10 @@ export const hud = {
   showMenu(selected) {
     menu.hidden = selected === null;
     for (const b of levelButtons) b.classList.toggle('selected', b.dataset.level === selected);
+  },
+
+  setMuted(muted) {
+    muteBadge.hidden = !muted;
   },
 
   // 滑鼠點選難度
