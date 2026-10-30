@@ -31,6 +31,7 @@ const MAX_FRAME = 0.1; // 分頁切回來時避免一次補太多步
 // 視窗夠寬時主畫面選單靠左，球場往右挪這個比例的畫面寬（斷點跟 style.css 一致）
 const MENU_SIDE_MIN_WIDTH = 900;
 const MENU_SHIFT = 0.13;
+const SPIKE_ZOOM_LEAD = 0.8; // 扣球前幾秒鏡頭開始推近
 
 // 抗鋸齒交給後製的 FXAA（見 postprocessing.js），畫布本身不用開；解析度倍率由畫質設定決定
 const renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -78,6 +79,7 @@ const warmUp = new WarmUp([
 const match = new Match();
 const effects = new Effects(scene);
 const rig = new CameraRig(camera, renderer.domElement);
+const cameraFocus = { point: ball.pos, zoom: 0 }; // 比賽中鏡頭要跟的球
 const COURT_CENTER = new THREE.Vector3(0, 0, 0);
 
 // 玩家強力扣球的衝擊定格：鏡頭直接切到扣球者側前方，對準手碰球的地方，定格後拉回原本視角
@@ -235,13 +237,13 @@ function openMenu(screen = 'main') {
   menu.open(screen);
 }
 
-// 離開主畫面進入比賽或練習
-function leaveMenu(aiName) {
+// 離開主畫面進入比賽或練習；cameraTime：鏡頭從繞場移到比賽視角的秒數（不傳用預設）
+function leaveMenu(aiName, cameraTime) {
   inMenu = false;
   menu.close();
   warmUp.stop();
   warmBall.mesh.visible = false;
-  rig.stopOrbit();
+  rig.stopOrbit(cameraTime);
   hud.setPauseButtonVisible(true);
   setAiLevel(aiName);
   for (const p of teams.away) p.speedScale = aiLevel().speed;
@@ -252,9 +254,33 @@ function leaveMenu(aiName) {
 // name：難度；不傳就沿用上一局（暫停選單的重新開局）
 function startMatch(name = level) {
   level = name;
-  leaveMenu(level);
+  leaveMenu(level, INTRO.camera);
   hud.setScore(match.score, match.servingSide);
   serve.reset(match.server(teams));
+  intro = { t: 0, ready: false, go: false };
+  hud.showIntro(aiLevel().label);
+}
+
+// 比賽開場動畫：「我方 VS 對手」→ READY? → GO!（時間點跟 style.css 的 #intro 動畫一致），期間不能發球；空白鍵跳過
+const INTRO = { ready: 1.4, go: 2.05, end: 2.7, camera: 1.8 };
+let intro = null; // 開場動畫進行中：{ t, ready, go }
+
+function updateIntro(dt) {
+  if (input.wasPressed('action')) intro.t = INTRO.end; // 跳過（不播 READY、GO 的音效）
+  else intro.t += dt;
+  const playing = intro.t < INTRO.end;
+  if (playing && !intro.ready && intro.t >= INTRO.ready) {
+    intro.ready = true;
+    sound.play('ui');
+  }
+  if (playing && !intro.go && intro.t >= INTRO.go) {
+    intro.go = true;
+    sound.play('whistle');
+  }
+  if (!playing) {
+    intro = null;
+    hud.showIntro(null);
+  }
 }
 
 // 練習模式：drill 為 'serve' | 'receive' | 'spike' | 'block'，一球接一球無限重來
@@ -322,7 +348,7 @@ let pauseIndex = 0;
 
 // 一局打完、結果畫面出現後就不需要暫停
 function canPause() {
-  return !inMenu && !(!practice && match.winner && rally.state === 'idle');
+  return !inMenu && !intro && !(!practice && match.winner && rally.state === 'idle');
 }
 
 function pause() {
@@ -423,6 +449,8 @@ renderer.setAnimationLoop((time) => {
     updatePause();
   } else if (inMenu) {
     menu.update();
+  } else if (intro) {
+    updateIntro(dt);
   } else if (input.wasPressed('pause') && canPause()) {
     pause();
   } else {
@@ -489,7 +517,10 @@ renderer.setAnimationLoop((time) => {
   hud.setEnergy(rally.energy, rally.armed, POWER.maxEnergy);
   ambience.update(dt);
   effects.update(dt);
-  rig.update(dt, effects.shakeOffset);
+  // 比賽中鏡頭輕微跟著球；扣球前一下子到扣球飛行中稍微推近
+  const spiking = (plan?.type === 'spike' && plan.time - rally.time < SPIKE_ZOOM_LEAD) || rally.ballState !== null;
+  cameraFocus.zoom = spiking ? 1 : 0;
+  rig.update(dt, effects.shakeOffset, false, inMenu ? null : cameraFocus);
   input.endFrame();
   graphics.render();
 });

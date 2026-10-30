@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ビーチバレー！沙灘排球</title>
+    <!-- 遊戲字型：jf 粉圓（Google Fonts 的 Huninn，圓體、繁中與日文假名都有）；離線時自動改用系統字型 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Huninn&display=swap" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -209,6 +213,14 @@
           <button data-goto="main">完成</button>
         </div>
         <div id="menu-keys" class="again"></div>
+      </div>
+      <div id="intro" hidden>
+        <div class="intro-vs">
+          <span class="intro-home">我方</span><b>VS</b><span class="intro-away">對手</span>
+          <div class="intro-level"></div>
+        </div>
+        <div class="intro-ready">READY?</div>
+        <div class="intro-go">GO!</div>
       </div>
       <div id="impact"></div>
       <div id="result" hidden></div>

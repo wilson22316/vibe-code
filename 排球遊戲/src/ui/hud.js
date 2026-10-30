@@ -18,6 +18,7 @@ const pauseButton = document.getElementById('pause-button');
 const hudRoot = document.getElementById('hud');
 const practicePanel = document.getElementById('practice-panel');
 const tutorialEl = document.getElementById('tutorial');
+const introEl = document.getElementById('intro');
 const hintEl = document.getElementById('hint');
 const defaultHint = hintEl.textContent;
 
@@ -106,6 +107,14 @@ export const hud = {
     tutorialEl.querySelector('.tutorial-title').textContent = info.title;
     tutorialEl.querySelector('.tutorial-text').textContent = info.text;
     replay(tutorialEl, 'show');
+  },
+
+  // 比賽開場動畫（我方 VS 對手 → READY? → GO!）：levelLabel 為對手難度；傳 null 隱藏
+  showIntro(levelLabel) {
+    introEl.hidden = levelLabel === null;
+    if (levelLabel === null) return;
+    introEl.querySelector('.intro-level').textContent = `對手難度：${levelLabel}`;
+    replay(introEl, 'show');
   },
 
   // 底部的操作提示；傳 null 恢復比賽用的提示
