@@ -114,8 +114,15 @@ export class Menu {
     else if (input.wasPressed('pause')) this.back();
   }
 
-  // 更新選項右邊顯示的值，例如 setValue('sfx', '開')
-  setValue(action, text) {
-    for (const el of root.querySelectorAll(`[data-action="${action}"] [data-current]`)) el.textContent = text;
+  // 更新選項右邊顯示的值，例如 setValue('sfx', '開')；color（色碼數字）：顏色選項前面加一個色塊
+  setValue(action, text, color) {
+    for (const el of root.querySelectorAll(`[data-action="${action}"] [data-current]`)) {
+      el.textContent = text;
+      if (color === undefined) continue;
+      const swatch = document.createElement('i');
+      swatch.className = 'swatch';
+      swatch.style.background = `#${color.toString(16).padStart(6, '0')}`;
+      el.prepend(swatch);
+    }
   }
 }

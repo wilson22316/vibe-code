@@ -18,6 +18,7 @@ import { Positioning } from './systems/positioning.js';
 import { Rally } from './systems/rally.js';
 import { createAimMarker, ServeController } from './systems/serve.js';
 import { WarmUp } from './systems/warmup.js';
+import { Customizer, loadTeamLook, PREVIEW_VIEW } from './ui/customize.js';
 import { hud } from './ui/hud.js';
 import { Menu } from './ui/menu.js';
 
@@ -49,9 +50,15 @@ const warmBall = new Ball(); // 主畫面對手那組熱身用的第二顆球
 warmBall.mesh.visible = false;
 scene.add(ball.mesh, warmBall.mesh, landingMarker, timingCue, aimMarker, spikeMarker);
 
+// 我方外觀用角色自訂存的設定
+const homeLook = loadTeamLook();
 const teams = {};
 for (const [name, team] of Object.entries(TEAMS)) {
-  teams[name] = team.members.map((m) => new Player({ team, shirt: team.shirt, ...m }));
+  teams[name] = team.members.map((m, i) =>
+    name === 'home'
+      ? new Player({ team, ...m, ...homeLook.members[i], shirt: homeLook.shirt })
+      : new Player({ team, shirt: team.shirt, ...m }),
+  );
   for (const p of teams[name]) scene.add(p.mesh);
 }
 const positioning = new Positioning(teams);
@@ -140,18 +147,44 @@ let level = 'normal';
 let inMenu = true;
 
 const onOff = (on) => (on ? '開' : '關');
-const menu = new Menu({
-  level: (name) => startMatch(name),
-  graphics: () => toggleGraphics(),
-  sfx: () => {
-    const on = sound.toggleSfx();
-    menu.setValue('sfx', onOff(on));
-    if (on) sound.play('ui'); // 剛打開時讓玩家聽到
+const CUSTOM_KEYS = ['member', 'hairStyle', 'hair', 'skin', 'accessory', 'shirt'];
+const menu = new Menu(
+  {
+    level: (name) => startMatch(name),
+    graphics: () => toggleGraphics(),
+    sfx: () => {
+      const on = sound.toggleSfx();
+      menu.setValue('sfx', onOff(on));
+      if (on) sound.play('ui'); // 剛打開時讓玩家聽到
+    },
+    music: () => menu.setValue('music', onOff(sound.toggleMusic())),
+    ...Object.fromEntries(CUSTOM_KEYS.map((key) => [key, (value, dir) => customizer.change(key, dir)])),
+    resetLook: () => {
+      customizer.reset();
+      hud.toast('已恢復預設外觀');
+    },
   },
-  music: () => menu.setValue('music', onOff(sound.toggleMusic())),
-});
+  onMenuScreen,
+);
 menu.setValue('sfx', onOff(sound.sfxEnabled));
 menu.setValue('music', onOff(sound.musicEnabled));
+const customizer = new Customizer(teams.home, menu);
+scene.add(customizer.marker);
+
+// 切到角色自訂：我方兩人停止熱身、站到鏡頭前；離開時回去繼續熱身（對手一直在後面熱身）
+function onMenuScreen(name) {
+  if (name === 'custom') {
+    warmUp.stop(TEAMS.home.side);
+    ball.mesh.visible = false;
+    customizer.enter();
+    rig.holdView(PREVIEW_VIEW.position, PREVIEW_VIEW.target);
+  } else if (customizer.active) {
+    customizer.exit();
+    ball.mesh.visible = true;
+    warmUp.start(TEAMS.home.side);
+    rig.startOrbit();
+  }
+}
 
 // 主畫面：兩隊在場上熱身互傳球，鏡頭慢慢繞場
 function openMenu() {

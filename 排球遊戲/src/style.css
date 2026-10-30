@@ -39,8 +39,9 @@ body {
   font-size: 16px;
 }
 
+/* 我方顏色跟著角色自訂的球衣（customize.js 設定 --home-color） */
 #scoreboard .home {
-  background: #ff6b4a;
+  background: var(--home-color, #ff6b4a);
 }
 
 #scoreboard .away {
@@ -424,6 +425,18 @@ body {
 
 .menu-screen button.setting b::after {
   content: ' ›';
+}
+
+/* 顏色選項的色塊 */
+.swatch {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 6px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  vertical-align: -0.1em;
 }
 
 .menu-screen button.back {

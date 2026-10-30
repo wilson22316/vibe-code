@@ -16,18 +16,18 @@ export class WarmUp {
     this.pairs = pairs.map(({ players, ball }) => ({
       players,
       ball,
+      side: players[0].team.side,
       spots: SPOTS[players[0].team.side].map(([x, z]) => new THREE.Vector3(x, 0, z)),
-      plan: null, // 下一次觸球：{ receiver, kind, point, time, jumped }
+      plan: null, // 下一次觸球：{ receiver, kind, point, time, jumped }；null 表示這組沒在熱身
     }));
     this.time = 0;
     this.accumulator = 0;
   }
 
-  // 大家回到熱身位置，由第一個人把球傳出去
-  start() {
-    this.time = 0;
-    this.accumulator = 0;
+  // 回到熱身位置，由第一個人把球傳出去。side：只開始這一隊（不傳就兩隊都開始）
+  start(side) {
     for (const pair of this.pairs) {
+      if (side !== undefined && pair.side !== side) continue;
       pair.players.forEach((p, i) => {
         p.resetTo(pair.spots[i].x, pair.spots[i].z);
         p.facing = pair.ball.pos; // 一直看著球
@@ -38,8 +38,10 @@ export class WarmUp {
     }
   }
 
-  stop() {
+  // side：只停這一隊（不傳就兩隊都停）
+  stop(side) {
     for (const pair of this.pairs) {
+      if (side !== undefined && pair.side !== side) continue;
       for (const p of pair.players) {
         p.setReach(null);
         p.facing = null;
@@ -49,14 +51,15 @@ export class WarmUp {
   }
 
   update(dt) {
+    const active = this.pairs.filter((pair) => pair.plan);
     this.accumulator += dt;
     while (this.accumulator >= STEP) {
       this.accumulator -= STEP;
       this.time += STEP;
-      for (const pair of this.pairs) this.step(pair);
+      for (const pair of active) this.step(pair);
     }
     // 越接近觸球時間，手越準確地伸向球
-    for (const { plan, ball } of this.pairs) {
+    for (const { plan, ball } of active) {
       const weight = 1 - THREE.MathUtils.clamp((plan.time - this.time) / REACH_TIME, 0, 1);
       plan.receiver.setReach(plan.kind, ball.pos, weight);
     }

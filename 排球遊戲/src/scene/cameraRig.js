@@ -37,6 +37,12 @@ export class CameraRig {
     this.moveTo(new THREE.Vector3(...ORBIT_VIEW.position), new THREE.Vector3(...ORBIT_VIEW.target), instant);
   }
 
+  // 停在指定視角、不繞場（角色自訂的預覽）；position、target 為 [x, y, z]
+  holdView(position, target) {
+    this.orbiting = false;
+    this.moveTo(new THREE.Vector3(...position), new THREE.Vector3(...target));
+  }
+
   // 離開主畫面：停止繞場，回到原本選的預設視角
   stopOrbit() {
     this.orbiting = false;

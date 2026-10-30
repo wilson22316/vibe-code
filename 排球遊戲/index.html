@@ -32,7 +32,7 @@
           <button data-goto="level">開始比賽</button>
           <button data-soon>練習模式<small>即將推出</small></button>
           <button data-soon>操作教學<small>即將推出</small></button>
-          <button data-soon>角色自訂<small>即將推出</small></button>
+          <button data-goto="custom">角色自訂</button>
           <button data-goto="settings">設定</button>
           <button data-soon>多人連線<small>即將推出</small></button>
         </div>
@@ -63,6 +63,17 @@
             </dl>
           </div>
           <button class="back" data-back>‹ 返回</button>
+        </div>
+        <div class="menu-screen" data-screen="custom" data-axis="y" data-back="main" data-keys="↑ ↓ 選擇　·　← → 切換　·　Esc 完成（自動儲存）　·　拖曳可轉動看背面" hidden>
+          <div class="screen-title">角色自訂</div>
+          <button class="setting" data-action="member" data-adjust>球員<b data-current></b></button>
+          <button class="setting" data-action="hairStyle" data-adjust>髮型<b data-current></b></button>
+          <button class="setting" data-action="hair" data-adjust>髮色<b data-current></b></button>
+          <button class="setting" data-action="skin" data-adjust>膚色<b data-current></b></button>
+          <button class="setting" data-action="accessory" data-adjust>配件<b data-current></b></button>
+          <button class="setting" data-action="shirt" data-adjust>球衣（全隊）<b data-current></b></button>
+          <button data-action="resetLook">恢復預設</button>
+          <button data-goto="main">完成</button>
         </div>
         <div id="menu-keys" class="again"></div>
       </div>

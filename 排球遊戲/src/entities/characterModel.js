@@ -59,6 +59,17 @@ export function buildCharacter(look) {
   return root;
 }
 
+// 換外觀時丟掉舊模型：幾何、材質、球衣貼圖都是這個角色自己的；描邊材質是全部共用的快取，不能丟
+export function disposeCharacter(root) {
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.geometry.dispose();
+    if (o.userData.isOutline) return;
+    o.material.map?.dispose();
+    o.material.dispose();
+  });
+}
+
 // 建一個零件掛到 parent。small：五官這類小零件，不描邊（會糊成一團）也不投影
 function part(parent, geometry, material, x, y, z, { small = false } = {}) {
   const mesh = new THREE.Mesh(geometry, material);

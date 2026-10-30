@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BALL, PLAYER } from '../config.js';
 import { createPowerAura } from '../fx/powerAura.js';
-import { ARM_LENGTH, buildCharacter, EYE_SCALE_Y, HAND_RADIUS, HIP_HEIGHT, SHOULDER_HEIGHT } from './characterModel.js';
+import { ARM_LENGTH, buildCharacter, disposeCharacter, EYE_SCALE_Y, HAND_RADIUS, HIP_HEIGHT, SHOULDER_HEIGHT } from './characterModel.js';
 
 const ARRIVE_RADIUS = 0.05;
 const SLOW_RADIUS = 0.8; // 接近目標時減速，避免來回抖動
@@ -76,10 +76,26 @@ export class Player {
     this.blinkTimer = 0;
     this.nextBlink = 1 + Math.random() * 4;
 
-    this.mesh = buildCharacter({ shirt, pattern: team.pattern, skin, hair, hairStyle, accessory, number });
+    this.look = { shirt, skin, hair, hairStyle, accessory, number };
+    this.mesh = buildCharacter({ ...this.look, pattern: team.pattern });
     this.parts = this.mesh.userData.parts;
     this.aura = createPowerAura(); // 描邊已經加過了，氣場不會被描邊
     this.mesh.add(this.aura.group);
+    this.syncMesh();
+  }
+
+  // 換外觀（角色自訂）：changes 為 look 的部分欄位。重建模型、換掉場景裡的舊模型
+  setLook(changes) {
+    Object.assign(this.look, changes);
+    const old = this.mesh;
+    this.mesh = buildCharacter({ ...this.look, pattern: this.team.pattern });
+    this.parts = this.mesh.userData.parts;
+    this.mesh.add(this.aura.group); // 從舊模型搬過來（還是不會被描邊）
+    if (old.parent) {
+      old.parent.add(this.mesh);
+      old.parent.remove(old);
+    }
+    disposeCharacter(old);
     this.syncMesh();
   }
 
