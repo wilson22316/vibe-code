@@ -86,6 +86,13 @@ export class ServeController {
     }
   }
 
+  // 這一球不用發球（練習扣球、攔網直接從舉球開始）：按空白鍵不會開始蓄力
+  clear() {
+    this.state = 'idle';
+    this.aimMarker.visible = false;
+    this.hud.setPower(null);
+  }
+
   // 暫停時取消蓄力：暫停期間放開按鍵不會被偵測到，繼續後才不會莫名其妙發出去
   cancelCharge() {
     if (this.state !== 'charging') return;

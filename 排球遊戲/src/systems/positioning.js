@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BLOCK, COURT, HIT } from '../config.js';
 
 const REACH_MARGIN = 1.5; // 允許跑出場外多遠去救球
-const SPIKE_APPROACH_Z = 3.2; // 等舉球時，攻擊手先退到這裡準備助跑
+export const SPIKE_APPROACH_Z = 3.2; // 等舉球時，攻擊手先退到這裡準備助跑
 const HIGH_FIVE_GAP = 0.7; // 慶祝擊掌時兩人的距離
 
 // 簡化版自動跑位：依 Rally 的下一次觸球計畫（plan）決定每個人該去哪。

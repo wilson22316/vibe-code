@@ -163,11 +163,27 @@ body {
   pointer-events: auto;
 }
 
-/* 主畫面時不顯示比賽用的記分板、能量條、操作提示 */
+/* 主畫面時不顯示比賽用的記分板、能量條、操作提示；練習時不計分，記分板換成練習資訊列 */
 #hud.in-menu #scoreboard,
 #hud.in-menu #energy,
-#hud.in-menu #hint {
+#hud.in-menu #hint,
+#hud.practice #scoreboard,
+#hud.practice #energy {
   display: none;
+}
+
+#practice-panel {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 20px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.6);
+  font-size: 18px;
+  white-space: nowrap;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.15);
 }
 
 #pause-title {
@@ -425,6 +441,14 @@ body {
 
 .menu-screen button.setting b::after {
   content: ' ›';
+}
+
+/* 練習項目的說明（小字） */
+.menu-screen button .desc {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.85;
 }
 
 /* 顏色選項的色塊 */

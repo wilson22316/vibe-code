@@ -47,7 +47,7 @@ const ATTEMPTS = {
 // 一球的來回：預測下一次誰在哪裡碰球、判定按鍵時機、執行擊球、判定得分。
 // 球路是確定性的，所以每次擊球後就能算出下一次觸球的精確位置與時間（plan）。
 export class Rally {
-  // onPoint(winnerSide)：判定得分當下呼叫；onFinished()：結果顯示完畢後呼叫
+  // onPoint(winnerSide, reason)：判定得分當下呼叫（reason 如「界內」「出界」）；onFinished()：結果顯示完畢後呼叫
   // onEvent(name, data)：給特效與音效用，'hit' | 'block' | 'net' | 'land'
   constructor(ball, teams, hud, { onPoint, onFinished, onEvent = () => {} }) {
     this.ball = ball;
@@ -63,6 +63,7 @@ export class Rally {
     this.armed = { 1: false, [-1]: false }; // 能量滿、已按 A，等著下一次扣球
     this.spikeAim = null; // 玩家這次扣球選的落點格子 { col, row }
     this.ballState = null; // 'spike' | 'power'：球正在扣球飛行中（特效用）
+    this.noPlays = false; // 練習用：這一球之後沒有人再碰球
     this.resetEnergy();
   }
 
@@ -72,6 +73,14 @@ export class Rally {
     this.plan = null;
     this.spikeAim = null;
     this.ballState = null;
+    this.clearReach();
+  }
+
+  // 練習用：從現在起沒有人再碰球（球自己落地判定，或被中斷）
+  stopPlays() {
+    this.noPlays = true;
+    this.plan = null;
+    this.spikeAim = null;
     this.clearReach();
   }
 
@@ -98,14 +107,21 @@ export class Rally {
   }
 
   start(server) {
+    this.startFrom(server, 'serve', 0);
+  }
+
+  // 從「lastHitter 剛用 lastType 碰完球、這一側已經碰了 touches 次」開始這一球（練習模式直接從舉球開始）
+  startFrom(lastHitter, lastType, touches) {
     this.state = 'live';
     this.time = 0;
     this.ballState = null;
-    this.lastSide = server.team.side;
-    this.lastType = 'serve';
+    this.noPlays = false;
+    this.lastSide = lastHitter.team.side;
+    this.lastType = lastType;
+    this.lastGrade = 'good';
     this.lastPower = false;
-    this.lastHitter = server;
-    this.touches = 0;
+    this.lastHitter = lastHitter;
+    this.touches = touches;
     this.flags = { net: false, outsideAntenna: false };
     this.replan();
   }
@@ -172,6 +188,7 @@ export class Rally {
   replan() {
     this.plan = null;
     this.spikeAim = null;
+    if (this.noPlays) return;
     const probe = new THREE.Vector3();
     if (predictCrossing(this.ball, HIT.heights.bump, probe) === null) return;
 
@@ -494,6 +511,6 @@ export class Rally {
     this.clearReach();
     this.state = 'dead';
     this.resultTimer = RESULT_TIME;
-    this.onPoint(-loser);
+    this.onPoint(-loser, reason);
   }
 }

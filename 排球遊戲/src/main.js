@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HUMAN_SIDES, POWER, TEAMS } from './config.js';
+import { HUMAN_SIDES, POWER, PRACTICE_SLOW, TEAMS } from './config.js';
 import { sound } from './audio/sound.js';
 import { Ball, createLandingMarker, createSpikeMarker, createTimingCue } from './entities/ball.js';
 import { Player } from './entities/player.js';
@@ -15,6 +15,7 @@ import { predictLanding } from './systems/ballPhysics.js';
 import { aiLevel, setAiLevel } from './systems/ai.js';
 import { Match } from './systems/match.js';
 import { Positioning } from './systems/positioning.js';
+import { DRILLS, Practice } from './systems/practice.js';
 import { Rally } from './systems/rally.js';
 import { createAimMarker, ServeController } from './systems/serve.js';
 import { WarmUp } from './systems/warmup.js';
@@ -108,10 +109,15 @@ function onRallyEvent(name, data) {
     effects.sand(data.pos, data.power ? 2.2 : hard ? 1.6 : 1);
     if (hard) effects.shake(data.power ? 0.35 : 0.2);
   }
+  practice?.onEvent(name, data);
 }
 
 const rally = new Rally(ball, teams, hud, {
-  onPoint: (side) => {
+  onPoint: (side, reason) => {
+    if (practice) {
+      practice.onPoint(side, reason); // 練習不計分
+      return;
+    }
     match.pointTo(side);
     hud.setScore(match.score, match.servingSide);
     positioning.celebrate(side);
@@ -122,7 +128,9 @@ const rally = new Rally(ball, teams, hud, {
     }
   },
   onFinished: () => {
-    if (match.winner) {
+    if (practice) {
+      practice.next();
+    } else if (match.winner) {
       const win = HUMAN_SIDES.includes(match.winner);
       hud.showGameOver({ win, score: match.score });
       sound.play(win ? 'win' : 'lose');
@@ -139,12 +147,15 @@ const serve = new ServeController(ball, hud, aimMarker, {
     sound.play('serve');
     effects.hit(ball.pos, 'good');
     rally.start(server);
+    practice?.onServe();
   },
 });
 const landing = new THREE.Vector3();
 
 let level = 'normal';
 let inMenu = true;
+let practice = null; // 練習模式中：Practice
+let practiceSlow = true; // 練習選單的「速度」：慢速（預設）或正常
 
 const onOff = (on) => (on ? '開' : '關');
 const CUSTOM_KEYS = ['member', 'hairStyle', 'hair', 'skin', 'accessory', 'shirt'];
@@ -158,6 +169,11 @@ const menu = new Menu(
       if (on) sound.play('ui'); // 剛打開時讓玩家聽到
     },
     music: () => menu.setValue('music', onOff(sound.toggleMusic())),
+    practice: (drill) => startPractice(drill),
+    practiceSpeed: () => {
+      practiceSlow = !practiceSlow;
+      menu.setValue('practiceSpeed', practiceSlow ? '慢速' : '正常');
+    },
     ...Object.fromEntries(CUSTOM_KEYS.map((key) => [key, (value, dir) => customizer.change(key, dir)])),
     resetLook: () => {
       customizer.reset();
@@ -168,6 +184,7 @@ const menu = new Menu(
 );
 menu.setValue('sfx', onOff(sound.sfxEnabled));
 menu.setValue('music', onOff(sound.musicEnabled));
+menu.setValue('practiceSpeed', practiceSlow ? '慢速' : '正常');
 const customizer = new Customizer(teams.home, menu);
 scene.add(customizer.marker);
 
@@ -186,9 +203,12 @@ function onMenuScreen(name) {
   }
 }
 
-// 主畫面：兩隊在場上熱身互傳球，鏡頭慢慢繞場
-function openMenu() {
+// 主畫面：兩隊在場上熱身互傳球，鏡頭慢慢繞場。screen：直接打開哪一頁
+function openMenu(screen = 'main') {
   inMenu = true;
+  practice = null;
+  hud.setPractice(null);
+  hud.setHint(null);
   hud.showGameOver(null);
   hud.showResult(null);
   hud.setPower(null);
@@ -197,24 +217,46 @@ function openMenu() {
   warmBall.mesh.visible = true;
   warmUp.start();
   rig.startOrbit();
-  menu.open();
+  menu.open(screen);
 }
 
-// name：難度；不傳就沿用上一局（暫停選單的重新開局）
-function startMatch(name = level) {
-  level = name;
+// 離開主畫面進入比賽或練習
+function leaveMenu(aiName) {
   inMenu = false;
   menu.close();
   warmUp.stop();
   warmBall.mesh.visible = false;
   rig.stopOrbit();
   hud.setPauseButtonVisible(true);
-  setAiLevel(level);
+  setAiLevel(aiName);
   for (const p of teams.away) p.speedScale = aiLevel().speed;
   match.reset();
   rally.resetEnergy();
+}
+
+// name：難度；不傳就沿用上一局（暫停選單的重新開局）
+function startMatch(name = level) {
+  level = name;
+  leaveMenu(level);
   hud.setScore(match.score, match.servingSide);
   serve.reset(match.server(teams));
+}
+
+// 練習模式：drill 為 'serve' | 'receive' | 'spike' | 'block'，一球接一球無限重來
+function startPractice(drill) {
+  leaveMenu('practice');
+  practice = new Practice(drill, {
+    teams,
+    ball,
+    rally,
+    serve,
+    positioning,
+    hud,
+    slow: practiceSlow,
+    onResult: (ok) => ok && sound.play('success'),
+  });
+  hud.setHint(DRILLS[drill].hint);
+  practice.start();
 }
 
 // 按 A：能量滿就開啟強力擊球（下一次扣球生效）；已開啟時再按一次就取消（能量保留）
@@ -237,7 +279,7 @@ let pauseIndex = 0;
 
 // 一局打完、結果畫面出現後就不需要暫停
 function canPause() {
-  return !inMenu && !(match.winner && rally.state === 'idle');
+  return !inMenu && !(!practice && match.winner && rally.state === 'idle');
 }
 
 function pause() {
@@ -266,10 +308,11 @@ function choosePause(option) {
   resume();
   if (option === 'restart') {
     abortRally();
-    startMatch();
+    if (practice) practice.start(); // 練習：成功次數歸零重來
+    else startMatch();
   } else if (option === 'menu') {
     abortRally();
-    openMenu();
+    openMenu(practice ? 'practice' : 'main'); // 練習中回到練習選單，方便換項目
   }
 }
 
@@ -322,7 +365,8 @@ let accumulator = 0;
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_FRAME);
-  const simDt = dt * effects.timeScale; // 慢動作時球與角色變慢
+  const gameSpeed = practice?.slow ? PRACTICE_SLOW : 1; // 練習慢速：整個遊戲（含時機提示圈）變慢
+  const simDt = dt * effects.timeScale * gameSpeed; // 慢動作時球與角色變慢
 
   if (input.wasPressed('mute')) hud.setMuted(sound.toggleMute());
   if (input.wasPressed('graphics')) toggleGraphics();
@@ -339,11 +383,12 @@ renderer.setAnimationLoop((time) => {
   } else if (input.wasPressed('pause') && canPause()) {
     pause();
   } else {
-    serve.update(dt);
+    serve.update(dt * gameSpeed);
     rally.update();
+    practice?.update(simDt);
     if (input.wasPressed('power')) togglePower();
     // 一局結束、結果畫面出現後，按鍵回到選單
-    if (match.winner && rally.state === 'idle' && input.wasPressed('action')) openMenu();
+    if (!practice && match.winner && rally.state === 'idle' && input.wasPressed('action')) openMenu();
   }
 
   // 暫停時整個場面定格（球、角色、粒子、慢動作都不動），鏡頭仍可轉動查看

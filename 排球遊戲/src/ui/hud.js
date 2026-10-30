@@ -15,6 +15,10 @@ const impactEl = document.getElementById('impact');
 const pauseEl = document.getElementById('pause');
 const pauseOptions = [...document.querySelectorAll('#pause-options button')];
 const pauseButton = document.getElementById('pause-button');
+const hudRoot = document.getElementById('hud');
+const practicePanel = document.getElementById('practice-panel');
+const hintEl = document.getElementById('hint');
+const defaultHint = hintEl.textContent;
 
 const JUDGE_TEXT = {
   perfect: 'PERFECT!',
@@ -83,6 +87,18 @@ export const hud = {
 
   setPauseButtonVisible(visible) {
     pauseButton.hidden = !visible;
+  },
+
+  // 練習模式的資訊列（取代記分板）：{ name, success, tries, slow }；傳 null 回到比賽畫面
+  setPractice(info) {
+    hudRoot.classList.toggle('practice', info !== null);
+    practicePanel.hidden = info === null;
+    if (info) practicePanel.textContent = `${info.name}練習　成功 ${info.success} / ${info.tries}${info.slow ? '　·　慢速' : ''}`;
+  },
+
+  // 底部的操作提示；傳 null 恢復比賽用的提示
+  setHint(text) {
+    hintEl.textContent = text ?? defaultHint;
   },
 
   onPauseButton(callback) {

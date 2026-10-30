@@ -13,6 +13,7 @@
         <div class="team home"><span class="serve-dot"></span>我方<b id="score-home">0</b></div>
         <div class="team away"><b id="score-away">0</b>對手<span class="serve-dot"></span></div>
       </div>
+      <div id="practice-panel" hidden></div>
       <div id="energy">
         <div class="energy" id="energy-home"><div class="cells"></div><div class="energy-label"></div></div>
         <div class="energy" id="energy-away"><div class="cells"></div><div class="energy-label"></div></div>
@@ -30,7 +31,7 @@
         </div>
         <div class="menu-screen" data-screen="main" data-axis="y" data-keys="↑ ↓ 選擇　·　空白鍵 確定">
           <button data-goto="level">開始比賽</button>
-          <button data-soon>練習模式<small>即將推出</small></button>
+          <button data-goto="practice">練習模式</button>
           <button data-soon>操作教學<small>即將推出</small></button>
           <button data-goto="custom">角色自訂</button>
           <button data-goto="settings">設定</button>
@@ -62,6 +63,15 @@
               <dt>M／G</dt><dd>靜音／切換畫質</dd>
             </dl>
           </div>
+          <button class="back" data-back>‹ 返回</button>
+        </div>
+        <div class="menu-screen" data-screen="practice" data-axis="y" data-back="main" data-keys="↑ ↓ 選擇　·　空白鍵 開始　·　Esc 返回（練習中按 Esc 暫停）" hidden>
+          <div class="screen-title">練習模式</div>
+          <button data-action="practice" data-value="serve">發球<span class="desc">按住蓄力、放開發球，看球落在哪</span></button>
+          <button data-action="practice" data-value="receive">接球<span class="desc">對方發球過來，抓時機墊起來</span></button>
+          <button data-action="practice" data-value="spike">扣球<span class="desc">隊友舉球，選好落點扣下去</span></button>
+          <button data-action="practice" data-value="block">攔網<span class="desc">對方要扣球，抓時機起跳</span></button>
+          <button class="setting" data-action="practiceSpeed" data-adjust>速度<b data-current></b></button>
           <button class="back" data-back>‹ 返回</button>
         </div>
         <div class="menu-screen" data-screen="custom" data-axis="y" data-back="main" data-keys="↑ ↓ 選擇　·　← → 切換　·　Esc 完成（自動儲存）　·　拖曳可轉動看背面" hidden>

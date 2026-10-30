@@ -44,12 +44,12 @@ export class Menu {
     return root.dataset.screen ?? null;
   }
 
-  // 打開主畫面（Logo 和選項重新播一次進場動畫）
-  open() {
+  // 打開主畫面（Logo 和選項重新播一次進場動畫）；screen：直接打開哪一頁（例如練習結束回到練習選單）
+  open(screen = 'main') {
     root.hidden = false;
     hudRoot.classList.add('in-menu');
     replay(root, 'intro');
-    this.show('main');
+    this.show(screen);
   }
 
   close() {

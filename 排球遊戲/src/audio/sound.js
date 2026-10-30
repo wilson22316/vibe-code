@@ -127,6 +127,10 @@ const SOUNDS = {
     [392, 330, 262].forEach((f, i) => tone({ freq: f, dur: 0.35, type: 'triangle', vol: 0.18, delay: i * 0.18 }));
   },
   ui: () => tone({ freq: 880, dur: 0.05, type: 'triangle', vol: 0.15 }),
+  // 練習成功：往上跳的兩個音
+  success: () => {
+    [1047, 1568].forEach((f, i) => tone({ freq: f, dur: 0.16, type: 'triangle', vol: 0.15, delay: i * 0.08 }));
+  },
   // 選到還沒開放的項目：低沉的兩聲
   deny: () => {
     [220, 165].forEach((f, i) => tone({ freq: f, dur: 0.08, type: 'square', vol: 0.08, delay: i * 0.09 }));

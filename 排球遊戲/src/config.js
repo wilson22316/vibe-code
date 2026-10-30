@@ -58,7 +58,23 @@ export const AI_LEVELS = {
     powerChance: 1,
     powerOnPerfect: true,
   },
+  // 練習模式用（不會出現在難度選單）：發球不失誤、不攔網、扣球隨機落點（不找空檔、不閃攔網）
+  practice: {
+    label: '練習',
+    perfectRate: 0.3,
+    badRate: 0,
+    digChance: { perfect: 0.5, good: 0.82, bad: 0.92 },
+    blockRate: { perfect: 0, good: 0 },
+    serveFaultRate: 0,
+    speed: 1,
+    smartAim: 0,
+    powerChance: 0,
+    powerOnPerfect: false,
+  },
 };
+
+// 練習模式「慢速」的遊戲速度倍率：球、角色、時機提示圈一起變慢，判定時窗等於變寬
+export const PRACTICE_SLOW = 0.6;
 
 // 畫質設定（選單或 G 鍵切換）。實測內顯（Intel UHD 630，1080p）：畫質優先約 21ms/幀、效能優先約 13ms/幀
 export const GRAPHICS = {
