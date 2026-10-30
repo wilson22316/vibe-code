@@ -90,21 +90,24 @@ export const PLAYER = {
 };
 
 // 兩隊：home 在 +z（玩家方），away 在 -z。base 為每次發球前的站位。
+// pattern：球衣花紋（stripes 兩側直條、band 胸口橫條）；hairStyle、accessory 見 characterModel.js
 export const TEAMS = {
   home: {
     side: 1,
     shirt: 0xff6b4a,
+    pattern: 'stripes',
     members: [
-      { base: [-2, 5], skin: 0xffd7b5, hair: 0x3b2a20 },
-      { base: [2, 5], skin: 0xf1c08f, hair: 0xe0a33a },
+      { base: [-2, 5], skin: 0xffd7b5, hair: 0x3b2a20, hairStyle: 'short', accessory: 'sunglasses', number: 7 },
+      { base: [2, 5], skin: 0xf1c08f, hair: 0xe0a33a, hairStyle: 'ponytail', accessory: 'none', number: 11 },
     ],
   },
   away: {
     side: -1,
     shirt: 0x5b6cff,
+    pattern: 'band',
     members: [
-      { base: [-2, -5], skin: 0xe7b48a, hair: 0x1f1f2e },
-      { base: [2, -5], skin: 0xffe0c4, hair: 0xc4473a },
+      { base: [-2, -5], skin: 0xe7b48a, hair: 0x1f1f2e, hairStyle: 'spiky', accessory: 'headband', number: 3 },
+      { base: [2, -5], skin: 0xffe0c4, hair: 0xc4473a, hairStyle: 'bun', accessory: 'none', number: 9 },
     ],
   },
 };

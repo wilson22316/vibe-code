@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PLAYER } from '../config.js';
-import { addOutline, toonMaterial } from '../fx/toon.js';
+import { buildCharacter } from './characterModel.js';
 
 const ARRIVE_RADIUS = 0.05;
 const SLOW_RADIUS = 0.8; // 接近目標時減速，避免來回抖動
@@ -8,9 +8,9 @@ const ACTION_TIME = { swing: 0.35, bump: 0.35, set: 0.35 };
 export const JUMP_TIME = 0.6;
 const JUMP_HEIGHT = 0.8;
 
-// Q 版角色：大頭、短身。原點在腳底，預設面向 +z。
+// 場上的球員：移動、轉向、動作動畫。外觀見 characterModel.js
 export class Player {
-  constructor({ team, shirt, skin, hair, base }) {
+  constructor({ team, shirt, skin, hair, hairStyle, accessory, number, base }) {
     this.team = team;
     this.base = new THREE.Vector3(base[0], 0, base[1]);
     this.pos = this.base.clone();
@@ -25,7 +25,7 @@ export class Player {
     this.actionTimer = 0;
     this.jumpTimer = 0;
 
-    this.mesh = buildModel({ shirt, skin, hair });
+    this.mesh = buildCharacter({ shirt, pattern: team.pattern, skin, hair, hairStyle, accessory, number });
     this.parts = this.mesh.userData.parts;
     this.syncMesh();
   }
@@ -126,72 +126,4 @@ export class Player {
 
 function wrapAngle(a) {
   return Math.atan2(Math.sin(a), Math.cos(a));
-}
-
-function buildModel({ shirt, skin, hair }) {
-  const root = new THREE.Group();
-  const body = new THREE.Group(); // 腳以上全部掛在這裡，方便做彈跳
-  root.add(body);
-
-  const mat = (color) => toonMaterial({ color });
-  const skinMat = mat(skin);
-  const shirtMat = mat(shirt);
-  const shortsMat = mat(0x2a3550);
-  const shoeMat = mat(0xffffff);
-  const dark = new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
-
-  const add = (parent, geometry, material, x, y, z) => {
-    const m = new THREE.Mesh(geometry, material);
-    m.position.set(x, y, z);
-    m.castShadow = true;
-    parent.add(m);
-    return m;
-  };
-
-  // 腿：以髖關節為支點
-  const makeLeg = (x) => {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, 0.62, 0);
-    add(pivot, new THREE.CapsuleGeometry(0.085, 0.36, 4, 8), skinMat, 0, -0.3, 0);
-    add(pivot, new THREE.BoxGeometry(0.16, 0.1, 0.24), shoeMat, 0, -0.57, 0.03);
-    body.add(pivot); // 跟著身體彈跳，跑步時腳會短暫離地
-    return pivot;
-  };
-  const legL = makeLeg(0.12);
-  const legR = makeLeg(-0.12);
-
-  // 身體
-  add(body, new THREE.CylinderGeometry(0.22, 0.24, 0.2, 12), shortsMat, 0, 0.66, 0);
-  add(body, new THREE.CapsuleGeometry(0.22, 0.22, 4, 12), shirtMat, 0, 0.92, 0);
-
-  // 手臂：以肩膀為支點
-  const makeArm = (x) => {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, 1.1, 0);
-    add(pivot, new THREE.SphereGeometry(0.09, 10, 8), shirtMat, 0, -0.02, 0);
-    add(pivot, new THREE.CapsuleGeometry(0.065, 0.3, 4, 8), skinMat, 0, -0.22, 0);
-    body.add(pivot);
-    return pivot;
-  };
-  const armL = makeArm(0.3);
-  const armR = makeArm(-0.3);
-
-  // 頭
-  const head = new THREE.Group();
-  head.position.set(0, 1.48, 0);
-  body.add(head);
-  add(head, new THREE.SphereGeometry(0.3, 20, 16), skinMat, 0, 0, 0);
-  const hairCap = add(head, new THREE.SphereGeometry(0.315, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), mat(hair), 0, 0.01, 0);
-  hairCap.rotation.x = -0.35; // 往後蓋，露出臉
-  for (const x of [-0.1, 0.1]) {
-    const eye = add(head, new THREE.SphereGeometry(0.035, 8, 8), dark, x, 0.0, 0.275);
-    eye.scale.y = 1.6;
-    const cheek = add(head, new THREE.SphereGeometry(0.04, 8, 8), mat(0xff9a8a), x * 1.6, -0.08, 0.24);
-    cheek.scale.set(1, 0.6, 0.4);
-    eye.userData.noOutline = cheek.userData.noOutline = true; // 五官太小，描邊會糊成一團
-  }
-
-  addOutline(root, { thickness: 3.5 });
-  root.userData.parts = { legL, legR, armL, armR, body };
-  return root;
 }

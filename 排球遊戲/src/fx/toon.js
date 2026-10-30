@@ -59,14 +59,17 @@ export function setOutlineResolution(width, height) {
   resolution.value.set(width, height);
 }
 
-// 幫 root 底下所有 mesh 加描邊；userData.noOutline 的 mesh 會跳過
+// 幫 root 底下所有 mesh 加描邊；userData.noOutline 的 mesh 會跳過，userData.outlineColor 可指定線色
 export function addOutline(root, { thickness = 2, color } = {}) {
   const meshes = [];
   root.traverse((o) => {
     if (o.isMesh && !o.userData.noOutline && !o.userData.isOutline) meshes.push(o);
   });
   for (const mesh of meshes) {
-    const lineColor = color ?? (mesh.material.color ? mesh.material.color.clone().multiplyScalar(OUTLINE_DARKEN) : FALLBACK_COLOR);
+    const lineColor =
+      color ??
+      mesh.userData.outlineColor ??
+      (mesh.material.color ? mesh.material.color.clone().multiplyScalar(OUTLINE_DARKEN) : FALLBACK_COLOR);
     const outline = new THREE.Mesh(outlineGeometry(mesh.geometry), outlineMaterial(lineColor, thickness));
     outline.userData.isOutline = true;
     mesh.add(outline);
