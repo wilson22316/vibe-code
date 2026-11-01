@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ビーチバレー！沙灘排球</title>
+    <!-- 遊戲字型：jf 粉圓（Google Fonts 的 Huninn，圓體、繁中與日文假名都有）；離線時自動改用系統字型 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Huninn&display=swap" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud">
+      <div id="scoreboard">
+        <div class="team home"><span class="serve-dot"></span>我方<b id="score-home">0</b></div>
+        <div class="team away"><b id="score-away">0</b>對手<span class="serve-dot"></span></div>
+      </div>
+      <div id="practice-panel" hidden></div>
+      <div id="tutorial" hidden>
+        <div class="tutorial-step"></div>
+        <div class="tutorial-title"></div>
+        <div class="tutorial-text"></div>
+      </div>
+      <div id="energy">
+        <div class="energy" id="energy-home"><div class="cells"></div><div class="energy-label"></div></div>
+        <div class="energy" id="energy-away"><div class="cells"></div><div class="energy-label"></div></div>
+      </div>
+      <div id="game-over" hidden>
+        <div id="game-over-title"></div>
+        <div id="game-over-score"></div>
+        <div class="again">按 空白鍵 回到主畫面</div>
+      </div>
+      <!-- 主畫面：每個 .menu-screen 是一頁，按鈕的 data-* 用法見 src/ui/menu.js -->
+      <div id="menu" hidden>
+        <div id="logo">
+          <div id="logo-title"><span style="--i: 0; --c: #ff6b4a">ビ</span><span style="--i: 1; --c: #ff9f1c">ー</span><span style="--i: 2; --c: #ffc93c">チ</span><span style="--i: 3; --c: #2fbf4f">バ</span><span style="--i: 4; --c: #1fa2e8">レ</span><span style="--i: 5; --c: #5b6cff">ー</span><span style="--i: 6; --c: #ff5d8f">！</span><i class="logo-ball"></i></div>
+          <div id="logo-sub">沙灘排球</div>
+        </div>
+        <div class="menu-screen" data-screen="main" data-axis="y" data-keys="↑ ↓ 選擇　·　空白鍵 確定">
+          <button data-goto="level">開始比賽</button>
+          <button data-goto="practice">練習模式</button>
+          <button data-goto="tutorial">操作教學</button>
+          <button data-goto="custom">角色自訂</button>
+          <button data-goto="settings">設定</button>
+          <button data-soon>多人連線<small>即將推出</small></button>
+        </div>
+        <div class="menu-screen" data-screen="level" data-axis="x" data-back="main" data-default="1" data-keys="← → 選擇難度　·　空白鍵 開始　·　Esc 返回" hidden>
+          <div class="screen-title">選擇對手難度</div>
+          <div class="row">
+            <button data-action="level" data-value="easy">簡單</button>
+            <button data-action="level" data-value="normal">普通</button>
+            <button data-action="level" data-value="hard">困難</button>
+          </div>
+          <button class="back" data-back>‹ 返回</button>
+        </div>
+        <div class="menu-screen" data-screen="settings" data-axis="y" data-back="main" data-keys="↑ ↓ 選擇　·　← → 或空白鍵 切換　·　Esc 返回" hidden>
+          <div class="screen-title">設定</div>
+          <button class="setting" data-action="graphics" data-adjust>畫質<b data-current></b></button>
+          <button class="setting" data-action="sfx" data-adjust>音效<b data-current></b></button>
+          <button class="setting" data-action="music" data-adjust>背景音樂<b data-current></b></button>
+          <div class="keys">
+            <div class="keys-title">按鍵說明</div>
+            <dl>
+              <dt>空白鍵</dt><dd>發球（按住蓄力、放開發球）、擊球、攔網</dd>
+              <dt>← →</dt><dd>發球瞄準</dd>
+              <dt>↑ ↓ ← →</dt><dd>扣球前選落點</dd>
+              <dt>A</dt><dd>強力擊球（能量滿時；再按一次取消）</dd>
+              <dt>Esc／P</dt><dd>暫停（選單中返回）</dd>
+              <dt>C</dt><dd>切換視角；滑鼠拖曳轉動、滾輪縮放</dd>
+              <dt>M／G</dt><dd>靜音／切換畫質</dd>
+            </dl>
+          </div>
+          <button class="back" data-back>‹ 返回</button>
+        </div>
+        <div class="menu-screen" data-screen="practice" data-axis="y" data-back="main" data-keys="↑ ↓ 選擇　·　空白鍵 開始　·　Esc 返回（練習中按 Esc 暫停）" hidden>
+          <div class="screen-title">練習模式</div>
+          <button data-action="practice" data-value="serve">發球<span class="desc">按住蓄力、放開發球，看球落在哪</span></button>
+          <button data-action="practice" data-value="receive">接球<span class="desc">對方發球過來，抓時機墊起來</span></button>
+          <button data-action="practice" data-value="spike">扣球<span class="desc">隊友舉球，選好落點扣下去</span></button>
+          <button data-action="practice" data-value="block">攔網<span class="desc">對方要扣球，抓時機起跳</span></button>
+          <button class="setting" data-action="practiceSpeed" data-adjust>速度<b data-current></b></button>
+          <button class="back" data-back>‹ 返回</button>
+        </div>
+        <div class="menu-screen" data-screen="tutorial" data-axis="y" data-back="main" data-keys="↑ ↓ 選擇　·　空白鍵 確定　·　Esc 返回" hidden>
+          <div class="screen-title">操作教學</div>
+          <button data-goto="guide">玩法說明<span class="desc">怎麼得分、時機提示圈、發球、扣球落點、攔網、強力擊球、按鍵一覽</span></button>
+          <button data-action="tutorial">互動教學<span class="desc">發球 → 接球 → 扣球 → 攔網，做對才進下一步（慢速）</span></button>
+          <button class="back" data-back>‹ 返回</button>
+        </div>
+        <!-- 玩法說明：圖都是內嵌 SVG，動畫寫在 style.css（.guide-*） -->
+        <div class="menu-screen" data-screen="guide" data-axis="y" data-back="tutorial" data-keys="↑ ↓ 捲動　·　Esc 返回" hidden>
+          <div class="screen-title">玩法說明</div>
+          <div class="guide-cards scroll">
+            <section class="guide-card" style="--i: 0">
+              <svg viewBox="0 0 120 80" aria-hidden="true">
+                <rect x="6" y="14" width="108" height="52" rx="4" fill="#f2d6a2" stroke="#2f7bd9" stroke-width="2.5" />
+                <line x1="60" y1="8" x2="60" y2="72" stroke="#fff" stroke-width="4" />
+                <path d="M20 54 L34 30 L46 50 L88 30" fill="none" stroke="#ff6b4a" stroke-width="2.5" stroke-dasharray="4 3" />
+                <circle cx="20" cy="54" r="5" fill="#ff6b4a" /><circle cx="34" cy="30" r="5" fill="#ff6b4a" /><circle cx="46" cy="50" r="5" fill="#ff6b4a" />
+                <text x="20" y="57.5" class="guide-num">1</text><text x="34" y="33.5" class="guide-num">2</text><text x="46" y="53.5" class="guide-num">3</text>
+                <circle cx="90" cy="32" r="7" fill="#ffd23f" stroke="#2f7bd9" stroke-width="2" />
+                <text x="98" y="56" class="guide-label">+1</text>
+              </svg>
+              <div>
+                <h3>怎麼得分</h3>
+                <p>讓球落在對方場內就得分，每一球都計分。先拿到 15 分、而且領先 2 分就獲勝。每一邊最多碰 3 次：墊球 → 舉球 → 扣球。</p>
+              </div>
+            </section>
+            <section class="guide-card" style="--i: 1">
+              <svg viewBox="0 0 120 80" aria-hidden="true">
+                <ellipse cx="60" cy="50" rx="54" ry="24" fill="#f2d6a2" />
+                <ellipse cx="60" cy="50" rx="16" ry="7" fill="none" stroke="#ffe14d" stroke-width="4" />
+                <ellipse class="guide-cue" cx="60" cy="50" rx="16" ry="7" fill="none" stroke="#fff" stroke-width="2.5" />
+                <text x="60" y="20" class="guide-perfect">PERFECT!</text>
+              </svg>
+              <div>
+                <h3>抓時機：提示圈</h3>
+                <p>球快到的時候，地上會出現提示圈。白色外圈縮到跟黃色內圈一樣大時按空白鍵，就是 PERFECT！早一點或晚一點是 GOOD、BAD，太晚就 MISS。角色會自己跑位，你只要專心抓時機。</p>
+              </div>
+            </section>
+            <section class="guide-card" style="--i: 2">
+              <svg viewBox="0 0 120 80" aria-hidden="true">
+                <defs>
+                  <linearGradient id="guide-power" x1="0" x2="1">
+                    <stop offset="0" stop-color="#6ee36e" /><stop offset="0.6" stop-color="#ffd23f" /><stop offset="1" stop-color="#ff5a3d" />
+                  </linearGradient>
+                </defs>
+                <rect x="38" y="24" width="44" height="28" rx="4" fill="none" stroke="#fff" stroke-width="1.5" stroke-dasharray="3 2" />
+                <text x="60" y="20" class="guide-label">剛剛好</text>
+                <rect x="10" y="32" width="100" height="12" rx="6" fill="rgba(20,40,70,0.6)" stroke="#fff" stroke-width="2" />
+                <rect class="guide-power" x="11" y="33" width="98" height="10" rx="5" fill="url(#guide-power)" />
+                <text x="60" y="68" class="guide-label">按住蓄力 → 放開</text>
+              </svg>
+              <div>
+                <h3>發球</h3>
+                <p>按住空白鍵蓄力，力道條會來回擺動，放開就發球。力道在中間最剛好：太弱會掛網，太強會飛出底線。蓄力時用 ← → 瞄準左右。</p>
+              </div>
+            </section>
+            <section class="guide-card" style="--i: 3">
+              <svg viewBox="0 0 120 80" aria-hidden="true">
+                <rect x="24" y="6" width="72" height="60" fill="#f2d6a2" stroke="#2f7bd9" stroke-width="2" />
+                <path d="M48 6 V66 M72 6 V66 M24 26 H96 M24 46 H96" stroke="rgba(47,123,217,0.45)" stroke-width="1.5" />
+                <line x1="18" y1="70" x2="102" y2="70" stroke="#fff" stroke-width="4" />
+                <g class="guide-aim">
+                  <circle cx="0" cy="0" r="7" fill="none" stroke="#ff3d2e" stroke-width="2.5" />
+                  <path d="M-11 0 H11 M0 -11 V11" stroke="#ff3d2e" stroke-width="2" />
+                </g>
+                <text x="12" y="20" class="guide-label">深</text><text x="12" y="62" class="guide-label">短</text>
+              </svg>
+              <div>
+                <h3>扣球選落點</h3>
+                <p>輪到我方扣球時，對方場上會出現紅色準星。用方向鍵選落點：← → 選左右、↑ 打深、↓ 打短，選好就不用一直按著。</p>
+              </div>
+            </section>
+            <section class="guide-card" style="--i: 4">
+              <svg viewBox="0 0 120 80" aria-hidden="true">
+                <rect x="10" y="40" width="100" height="18" fill="none" stroke="#fff" stroke-width="2" />
+                <path d="M10 46 H110 M10 52 H110 M22 40 V58 M34 40 V58 M46 40 V58 M58 40 V58 M70 40 V58 M82 40 V58 M94 40 V58" stroke="rgba(255,255,255,0.45)" stroke-width="1" />
+                <g class="guide-hands">
+                  <rect x="44" y="18" width="10" height="24" rx="5" fill="#ffd7b5" stroke="#3b2a20" stroke-width="1.5" />
+                  <rect x="64" y="18" width="10" height="24" rx="5" fill="#ffd7b5" stroke="#3b2a20" stroke-width="1.5" />
+                </g>
+                <circle class="guide-blocked" cx="0" cy="0" r="6" fill="#ffd23f" stroke="#2f7bd9" stroke-width="2" />
+                <ellipse cx="59" cy="72" rx="16" ry="4" fill="none" stroke="#ffe14d" stroke-width="2.5" />
+              </svg>
+              <div>
+                <h3>攔網</h3>
+                <p>對方要扣球時，靠網的我方球員腳下會出現提示圈，外圈縮到黃圈時按空白鍵起跳。時機越準攔得越寬，完美攔網會直接把球蓋回對方場地。</p>
+              </div>
+            </section>
+            <section class="guide-card" style="--i: 5">
+              <svg viewBox="0 0 120 80" aria-hidden="true">
+                <g class="guide-energy">
+                  <rect x="8" y="22" width="16" height="10" rx="3" /><rect x="28" y="22" width="16" height="10" rx="3" /><rect x="48" y="22" width="16" height="10" rx="3" />
+                  <rect x="68" y="22" width="16" height="10" rx="3" /><rect x="88" y="22" width="16" height="10" rx="3" />
+                </g>
+                <rect x="44" y="44" width="30" height="28" rx="6" fill="#fff" stroke="#c9d3e6" stroke-width="2" />
+                <text x="59" y="64" class="guide-key">A</text>
+              </svg>
+              <div>
+                <h3>能量與強力擊球</h3>
+                <p>每次扣球會累積能量（PERFECT +2、其他 +1），集滿 5 格時按 A 開啟強力擊球：下一次扣球威力更強，對方更難接、也更難攔。開啟後再按一次 A 可以取消。</p>
+              </div>
+            </section>
+            <section class="guide-card wide" style="--i: 6">
+              <div>
+                <h3>按鍵一覽</h3>
+                <dl class="guide-keys">
+                  <dt>空白鍵</dt><dd>發球（按住蓄力、放開發球）、擊球、攔網、選單確定</dd>
+                  <dt>← →</dt><dd>發球瞄準</dd>
+                  <dt>↑ ↓ ← →</dt><dd>扣球前選落點</dd>
+                  <dt>A</dt><dd>強力擊球（能量滿時；再按一次取消）</dd>
+                  <dt>Esc／P</dt><dd>暫停（選單中返回）</dd>
+                  <dt>C</dt><dd>切換視角；滑鼠拖曳轉動、滾輪縮放</dd>
+                  <dt>M／G</dt><dd>靜音／切換畫質</dd>
+                </dl>
+              </div>
+            </section>
+          </div>
+          <button data-goto="tutorial">返回</button>
+        </div>
+        <div class="menu-screen" data-screen="custom" data-axis="y" data-back="main" data-keys="↑ ↓ 選擇　·　← → 切換　·　Esc 完成（自動儲存）　·　拖曳可轉動看背面" hidden>
+          <div class="screen-title">角色自訂</div>
+          <button class="setting" data-action="member" data-adjust>球員<b data-current></b></button>
+          <button class="setting" data-action="hairStyle" data-adjust>髮型<b data-current></b></button>
+          <button class="setting" data-action="hair" data-adjust>髮色<b data-current></b></button>
+          <button class="setting" data-action="skin" data-adjust>膚色<b data-current></b></button>
+          <button class="setting" data-action="accessory" data-adjust>配件<b data-current></b></button>
+          <button class="setting" data-action="shirt" data-adjust>球衣（全隊）<b data-current></b></button>
+          <button data-action="resetLook">恢復預設</button>
+          <button data-goto="main">完成</button>
+        </div>
+        <div id="menu-keys" class="again"></div>
+      </div>
+      <div id="intro" hidden>
+        <div class="intro-vs">
+          <span class="intro-home">我方</span><b>VS</b><span class="intro-away">對手</span>
+          <div class="intro-level"></div>
+        </div>
+        <div class="intro-ready">READY?</div>
+        <div class="intro-go">GO!</div>
+      </div>
+      <div id="impact"></div>
+      <div id="result" hidden></div>
+      <div id="judge"></div>
+      <div id="power-bar" hidden><div id="power-fill"></div></div>
+      <div id="hint">空白鍵：按住蓄力發球／外圈縮到黃圈時擊球、攔網　·　← →：發球瞄準　·　扣球前 ↑ ↓ ← →：選落點　·　A：強力擊球（能量滿，再按取消）　·　M：靜音　·　G：畫質　·　拖曳／滾輪：轉動縮放鏡頭　·　C：視角</div>
+      <div id="mute" hidden>靜音中</div>
+      <div id="toast"></div>
+      <button id="pause-button" hidden>暫停（Esc）</button>
+      <div id="pause" hidden>
+        <div id="pause-title">暫停</div>
+        <div id="pause-options">
+          <button data-option="resume">繼續</button>
+          <button data-option="restart">重新開局</button>
+          <button data-option="menu">回到主畫面</button>
+        </div>
+        <div class="again">↑ ↓ 選擇　·　空白鍵 確定　·　Esc 繼續</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

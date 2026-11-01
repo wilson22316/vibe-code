@@ -1,0 +1,1149 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #cdeeff;
+}
+
+#app canvas {
+  display: block;
+}
+
+/* 遊戲字型 Huninn（jf 粉圓）只有一種粗細：不讓瀏覽器硬加粗（會糊掉）；離線時改用系統字型的粗體 */
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: 'Huninn', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+  font-weight: 800;
+  font-synthesis: none;
+  color: #fff;
+}
+
+#scoreboard {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  display: flex;
+  transform: translateX(-50%);
+  border: 3px solid #fff;
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.15);
+}
+
+#scoreboard .team {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+  font-size: 16px;
+}
+
+/* 我方顏色跟著角色自訂的球衣（customize.js 設定 --home-color） */
+#scoreboard .home {
+  background: var(--home-color, #ff6b4a);
+}
+
+#scoreboard .away {
+  background: #5b6cff;
+}
+
+#scoreboard b {
+  min-width: 1.4em;
+  font-size: 28px;
+  text-align: center;
+}
+
+/* 能量條：記分板下方，左我方、右對手 */
+#energy {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  display: flex;
+  gap: 56px;
+  transform: translateX(-50%);
+}
+
+.energy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.energy .cells {
+  display: flex;
+  gap: 4px;
+}
+
+.energy .cell {
+  width: 18px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  background: rgba(20, 40, 70, 0.45);
+}
+
+.energy .cell.on {
+  background: #ffd23f;
+}
+
+.energy.full .cell.on {
+  background: #ffb02e;
+  box-shadow: 0 0 8px #ffb02e;
+  animation: energy-glow 0.5s ease-in-out infinite alternate;
+}
+
+.energy.armed .cell.on {
+  background: #ff5a3d;
+  box-shadow: 0 0 10px #ff5a3d;
+}
+
+.energy-label {
+  min-height: 1.2em;
+  font-size: 13px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+}
+
+@keyframes energy-glow {
+  from {
+    opacity: 0.6;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 發球方旁邊亮一顆小球 */
+.serve-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffd23f;
+  box-shadow: 0 0 0 2px #fff;
+  visibility: hidden;
+}
+
+#scoreboard .serving .serve-dot {
+  visibility: visible;
+}
+
+#pause,
+#game-over {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(20, 40, 70, 0.45);
+  animation: fade-in 0.4s ease-out;
+}
+
+#game-over-title {
+  font-size: 64px;
+  color: #ffd23f;
+  -webkit-text-stroke: 4px #fff;
+  paint-order: stroke fill;
+}
+
+#game-over.lose #game-over-title {
+  color: #5b6cff;
+}
+
+#game-over-score {
+  font-size: 36px;
+}
+
+/* 選單本身讓滑鼠穿過去（背後的場景可以拖曳轉鏡頭），只有按鈕可以點 */
+#menu button,
+#pause button {
+  pointer-events: auto;
+}
+
+/* 主畫面時不顯示比賽用的記分板、能量條、操作提示；練習時不計分，記分板換成練習資訊列 */
+#hud.in-menu #scoreboard,
+#hud.in-menu #energy,
+#hud.in-menu #hint,
+#hud.practice #scoreboard,
+#hud.practice #energy {
+  display: none;
+}
+
+#practice-panel {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 20px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.6);
+  font-size: 18px;
+  white-space: nowrap;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.15);
+}
+
+#pause-title {
+  font-size: 56px;
+  color: #fff;
+  -webkit-text-stroke: 4px #5b6cff;
+  paint-order: stroke fill;
+}
+
+#pause-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+#pause-options button {
+  min-width: 200px;
+  padding: 10px 18px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.55);
+  color: #fff;
+  font: inherit;
+  font-size: 22px;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+
+#pause-options button.selected {
+  background: #ff6b4a;
+  transform: scale(1.08);
+}
+
+#pause-button {
+  position: absolute;
+  top: 18px;
+  left: 16px;
+  padding: 6px 14px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.55);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* ---- 主畫面：視窗夠寬時選單靠左，右邊留給繞場的球場（斷點跟 main.js 的 MENU_SIDE_MIN_WIDTH 一致） ---- */
+#menu {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 0 24px 24px max(48px, 7vw);
+  background: linear-gradient(90deg, rgba(20, 40, 70, 0.55), rgba(20, 40, 70, 0.2) 45%, rgba(20, 40, 70, 0) 65%);
+  animation: fade-in 0.4s ease-out;
+}
+
+@media (max-width: 899px) {
+  #menu {
+    align-items: center;
+    padding-left: 24px;
+    background: rgba(20, 40, 70, 0.35);
+  }
+}
+
+#logo {
+  margin-bottom: 10px;
+  animation: logo-float 3.2s ease-in-out infinite;
+}
+
+#logo-title {
+  position: relative;
+  font-size: clamp(48px, 7vw, 92px);
+  line-height: 1.15;
+  white-space: nowrap;
+  transition: font-size 0.3s;
+}
+
+/* 子畫面時 Logo 縮小，空間留給選項 */
+#menu:not([data-screen='main']) #logo-title {
+  font-size: clamp(34px, 4.4vw, 58px);
+}
+
+#menu:not([data-screen='main']) #logo-sub {
+  display: none;
+}
+
+#logo-title span {
+  display: inline-block;
+  color: var(--c);
+  -webkit-text-stroke: 8px #fff;
+  paint-order: stroke fill;
+  text-shadow: 0 8px 0 rgba(10, 30, 60, 0.28);
+}
+
+/* 進場：字一個一個彈跳落下 */
+#menu.intro #logo-title span {
+  animation: logo-drop 0.7s cubic-bezier(0.3, 1.6, 0.5, 1) backwards;
+  animation-delay: calc(var(--i) * 70ms);
+}
+
+/* 標題旁邊彈跳的小排球（跟遊戲裡的球一樣黃藍白） */
+.logo-ball {
+  position: absolute;
+  top: -0.1em;
+  right: -0.6em;
+  width: 0.48em;
+  height: 0.48em;
+  box-sizing: border-box;
+  border: 4px solid #fff;
+  border-radius: 50%;
+  background: conic-gradient(#ffd23f 0 60deg, #2f7bd9 0 120deg, #fff 0 180deg, #ffd23f 0 240deg, #2f7bd9 0 300deg, #fff 0);
+  box-shadow: 0 6px 0 rgba(10, 30, 60, 0.28);
+  animation: ball-bounce 1.1s ease-in-out infinite;
+}
+
+#logo-sub {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 14px 3px 22px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: #ff6b4a;
+  font-size: clamp(18px, 2.2vw, 26px);
+  letter-spacing: 0.45em;
+  box-shadow: 0 5px 0 rgba(10, 30, 60, 0.2);
+}
+
+#menu.intro #logo-sub {
+  animation: item-in 0.4s ease-out 0.5s backwards;
+}
+
+@keyframes logo-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-1.4em) scale(0.5);
+  }
+}
+
+@keyframes logo-float {
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes ball-bounce {
+  50% {
+    transform: translateY(-0.28em) rotate(180deg);
+  }
+}
+
+.menu-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+@media (max-width: 899px) {
+  .menu-screen {
+    align-items: center;
+  }
+}
+
+.menu-screen .row {
+  display: flex;
+  gap: 12px;
+}
+
+.screen-title {
+  font-size: 30px;
+  -webkit-text-stroke: 5px #5b6cff;
+  paint-order: stroke fill;
+}
+
+/* 每次切到這一頁，選項依序滑進來；第一次進主畫面時等 Logo 落下再滑 */
+.menu-screen button {
+  min-width: 250px;
+  padding: 8px 24px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.6);
+  color: #fff;
+  font: inherit;
+  font-size: 22px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s, background-color 0.12s;
+  animation: item-in 0.3s ease-out backwards;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+#menu.intro .menu-screen button {
+  animation-delay: calc(0.55s + var(--i, 0) * 60ms);
+}
+
+.menu-screen button.selected {
+  background: #ff6b4a;
+  transform: translateX(12px) scale(1.04);
+}
+
+.menu-screen .row button {
+  min-width: 110px;
+  text-align: center;
+}
+
+.menu-screen .row button.selected {
+  transform: scale(1.1);
+}
+
+/* 還沒開放的項目：灰字＋「即將推出」小標籤 */
+.menu-screen button[data-soon] {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.menu-screen button[data-soon].selected {
+  background: #7d879c;
+}
+
+.menu-screen button small {
+  margin-left: 10px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+/* 設定：右邊顯示目前的值，左右鍵切換 */
+.menu-screen button.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 330px;
+}
+
+.menu-screen button.setting b {
+  padding: 1px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 17px;
+}
+
+.menu-screen button.setting b::before {
+  content: '‹ ';
+}
+
+.menu-screen button.setting b::after {
+  content: ' ›';
+}
+
+/* ---- 玩法說明：卡片排成兩欄，可捲動（滑鼠滾輪或上下鍵） ---- */
+#menu[data-screen='guide'] #logo {
+  display: none;
+}
+
+.guide-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  box-sizing: border-box;
+  width: min(860px, calc(100vw - 96px));
+  max-height: calc(100vh - 230px); /* 留位置給標題、返回按鈕和底部提示 */
+  overflow-y: auto;
+  padding-right: 6px;
+  pointer-events: auto;
+}
+
+@media (max-width: 899px) {
+  .guide-cards {
+    grid-template-columns: 1fr;
+    width: calc(100vw - 48px);
+  }
+}
+
+.guide-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  border-radius: 16px;
+  background: rgba(20, 40, 70, 0.78);
+  animation: item-in 0.3s ease-out backwards;
+  animation-delay: calc(var(--i, 0) * 50ms);
+}
+
+.guide-card.wide {
+  grid-column: 1 / -1;
+}
+
+.guide-card svg {
+  flex: none;
+  width: 120px;
+  height: 80px;
+}
+
+.guide-card h3 {
+  margin: 0 0 4px;
+  color: #ffd23f;
+  font-size: 18px;
+}
+
+.guide-card p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.guide-keys {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.guide-keys dt {
+  color: #ffd23f;
+  white-space: nowrap;
+}
+
+.guide-keys dd {
+  margin: 0;
+}
+
+.guide-card text {
+  font-weight: 800;
+  text-anchor: middle;
+}
+
+.guide-num {
+  fill: #fff;
+  font-size: 7px;
+}
+
+.guide-label {
+  fill: #fff;
+  font-size: 9px;
+}
+
+.guide-key {
+  fill: #1d2a4a;
+  font-size: 18px;
+}
+
+/* 提示圈：白色外圈縮到黃色內圈時跳出 PERFECT */
+.guide-cue {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: guide-cue 1.8s ease-in infinite;
+}
+
+.guide-perfect {
+  fill: #ffb800;
+  stroke: #fff;
+  stroke-width: 2.5;
+  paint-order: stroke;
+  font-size: 12px;
+  font-style: italic;
+  animation: guide-perfect 1.8s infinite;
+}
+
+@keyframes guide-cue {
+  from {
+    transform: scale(2.8);
+  }
+  75%,
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes guide-perfect {
+  0%,
+  74% {
+    opacity: 0;
+  }
+  78%,
+  100% {
+    opacity: 1;
+  }
+}
+
+/* 發球力道條來回擺動 */
+.guide-power {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: guide-power 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes guide-power {
+  from {
+    transform: scaleX(0.05);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* 準星在九宮格之間移動 */
+.guide-aim {
+  animation: guide-aim 4s ease-in-out infinite;
+}
+
+@keyframes guide-aim {
+  0%,
+  20%,
+  100% {
+    transform: translate(60px, 36px);
+  }
+  25%,
+  45% {
+    transform: translate(36px, 16px);
+  }
+  50%,
+  70% {
+    transform: translate(84px, 16px);
+  }
+  75%,
+  95% {
+    transform: translate(60px, 56px);
+  }
+}
+
+/* 攔網：雙手跳起來把球擋回去 */
+.guide-hands {
+  animation: guide-hands 1.6s ease-in-out infinite;
+}
+
+.guide-blocked {
+  animation: guide-blocked 1.6s linear infinite;
+}
+
+@keyframes guide-hands {
+  0%,
+  100% {
+    transform: translateY(10px);
+  }
+  40%,
+  60% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes guide-blocked {
+  0% {
+    opacity: 1;
+    transform: translate(104px, 4px);
+  }
+  45% {
+    transform: translate(59px, 13px);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(98px, -4px);
+  }
+}
+
+/* 能量格依序集滿 */
+.guide-energy rect {
+  fill: rgba(20, 40, 70, 0.6);
+  stroke: #fff;
+  stroke-width: 2;
+  animation: guide-energy 3s infinite;
+}
+
+.guide-energy rect:nth-child(2) {
+  animation-delay: 0.3s;
+}
+
+.guide-energy rect:nth-child(3) {
+  animation-delay: 0.6s;
+}
+
+.guide-energy rect:nth-child(4) {
+  animation-delay: 0.9s;
+}
+
+.guide-energy rect:nth-child(5) {
+  animation-delay: 1.2s;
+}
+
+@keyframes guide-energy {
+  0%,
+  10% {
+    fill: rgba(20, 40, 70, 0.6);
+  }
+  15%,
+  70% {
+    fill: #ffd23f;
+  }
+  80%,
+  100% {
+    fill: rgba(20, 40, 70, 0.6);
+  }
+}
+
+/* ---- 互動教學的說明卡：左上角，不擋到畫面中間的判定文字 ---- */
+#tutorial {
+  position: absolute;
+  top: 60px;
+  left: 16px;
+  width: min(330px, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: 10px 16px 12px;
+  border: 3px solid #fff;
+  border-radius: 18px;
+  background: rgba(20, 40, 70, 0.75);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.15);
+}
+
+#tutorial.show {
+  animation: tutorial-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+@keyframes tutorial-in {
+  from {
+    opacity: 0;
+    transform: translateX(-30px) scale(0.92);
+  }
+}
+
+.tutorial-step {
+  display: inline-block;
+  padding: 1px 12px;
+  border-radius: 999px;
+  background: #ff6b4a;
+  font-size: 13px;
+}
+
+.tutorial-title {
+  margin-top: 4px;
+  color: #ffd23f;
+  font-size: 26px;
+  -webkit-text-stroke: 4px #1d2a4a;
+  paint-order: stroke fill;
+}
+
+.tutorial-text {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+/* 練習項目的說明（小字） */
+.menu-screen button .desc {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+/* 顏色選項的色塊 */
+.swatch {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 6px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  vertical-align: -0.1em;
+}
+
+.menu-screen button.back {
+  min-width: 0;
+  padding: 4px 16px;
+  background: rgba(20, 40, 70, 0.4);
+  font-size: 16px;
+}
+
+.keys {
+  max-width: 420px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: rgba(20, 40, 70, 0.6);
+  font-size: 14px;
+  font-weight: 700;
+  animation: item-in 0.3s ease-out 0.15s backwards;
+}
+
+.keys-title {
+  font-size: 16px;
+}
+
+.keys dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 6px 0 0;
+}
+
+.keys dt {
+  color: #ffd23f;
+  white-space: nowrap;
+}
+
+.keys dd {
+  margin: 0;
+}
+
+@keyframes item-in {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+}
+
+#menu .again,
+#game-over .again {
+  margin-top: 12px;
+  padding: 6px 18px;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.6);
+  font-size: 18px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* 提示很長，窄螢幕時自動換行，不要超出畫面 */
+#hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  box-sizing: border-box;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  border-radius: 16px;
+  background: rgba(20, 40, 70, 0.55);
+  font-size: 15px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+#mute {
+  position: absolute;
+  top: 18px;
+  right: 16px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.55);
+  font-size: 14px;
+}
+
+#toast {
+  position: absolute;
+  top: 56px;
+  right: 16px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.7);
+  font-size: 15px;
+  opacity: 0;
+}
+
+#toast.show {
+  animation: toast 1.6s ease-out forwards;
+}
+
+@keyframes toast {
+  0%,
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+#power-bar {
+  position: absolute;
+  bottom: 64px;
+  left: 50%;
+  width: 260px;
+  height: 18px;
+  transform: translateX(-50%);
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: rgba(20, 40, 70, 0.55);
+  overflow: hidden;
+}
+
+#power-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6ee36e, #ffd23f 60%, #ff5a3d);
+}
+
+#result {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 56px;
+  color: #ff5a3d;
+  -webkit-text-stroke: 3px #fff;
+  paint-order: stroke fill;
+  text-shadow: 0 6px 0 rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+
+#result.good {
+  color: #2fbf4f;
+}
+
+#result.pop {
+  animation: pop 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+/* 比賽開場：我方 VS 對手（兩邊滑進來）→ READY? → GO!；時間點跟 main.js 的 INTRO 一致 */
+#intro {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#intro > div {
+  position: absolute;
+  opacity: 0;
+}
+
+.intro-vs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  width: 100%;
+}
+
+.intro-vs span {
+  padding: 6px 28px;
+  border: 4px solid #fff;
+  border-radius: 999px;
+  font-size: 40px;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.18);
+}
+
+.intro-home {
+  background: var(--home-color, #ff6b4a);
+}
+
+.intro-away {
+  background: #5b6cff;
+}
+
+.intro-vs b {
+  color: #ffd23f;
+  font-size: 64px;
+  font-style: italic;
+  -webkit-text-stroke: 6px #1d2a4a;
+  paint-order: stroke fill;
+}
+
+.intro-level {
+  flex-basis: 100%;
+  font-size: 20px;
+  text-align: center;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.intro-ready,
+.intro-go {
+  font-size: 96px;
+  font-style: italic;
+  -webkit-text-stroke: 8px #fff;
+  paint-order: stroke fill;
+  text-shadow: 0 8px 0 rgba(10, 30, 60, 0.25);
+}
+
+.intro-ready {
+  color: #1fa2e8;
+}
+
+.intro-go {
+  color: #ff6b4a;
+}
+
+#intro.show .intro-vs {
+  animation: intro-vs 1.4s ease-out forwards;
+}
+
+#intro.show .intro-home {
+  animation: intro-from-left 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
+}
+
+#intro.show .intro-away {
+  animation: intro-from-right 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
+}
+
+#intro.show .intro-ready {
+  animation: intro-pop 0.65s ease-out 1.4s forwards;
+}
+
+#intro.show .intro-go {
+  animation: intro-pop 0.65s ease-out 2.05s forwards;
+}
+
+@keyframes intro-vs {
+  0% {
+    opacity: 0;
+  }
+  10%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes intro-from-left {
+  from {
+    transform: translateX(-60vw);
+  }
+}
+
+@keyframes intro-from-right {
+  from {
+    transform: translateX(60vw);
+  }
+}
+
+@keyframes intro-pop {
+  0% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  75% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.1);
+  }
+}
+
+/* 強力扣球的衝擊畫面：一開始白光一閃，接著放射狀速度線，持續定格的時間 */
+#impact {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(255, 255, 255, 0) 0deg 5deg, rgba(255, 255, 255, 0.55) 5deg 6deg);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 28%, black 72%);
+  mask-image: radial-gradient(circle at 50% 50%, transparent 28%, black 72%);
+}
+
+#impact.show {
+  animation: impact var(--impact-time, 0.5s) linear forwards;
+}
+
+@keyframes impact {
+  0% {
+    opacity: 1;
+    background-color: rgba(255, 255, 255, 0.85);
+  }
+  15% {
+    background-color: rgba(255, 255, 255, 0);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+#judge {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 40px;
+  font-style: italic;
+  -webkit-text-stroke: 3px #fff;
+  paint-order: stroke fill;
+  opacity: 0;
+  white-space: nowrap;
+}
+
+#judge[data-grade='perfect'] {
+  color: #ffb800;
+}
+#judge[data-grade='good'],
+#judge[data-grade='dive'] {
+  color: #2fbf4f;
+}
+#judge[data-grade='bad'],
+#judge[data-grade='far'] {
+  color: #8a8a8a;
+}
+#judge[data-grade='miss'] {
+  color: #ff5a3d;
+}
+#judge[data-grade='block'] {
+  color: #7a4dff;
+}
+#judge[data-grade='power'] {
+  color: #ff7a00;
+}
+
+#judge.flash {
+  animation: flash 0.8s ease-out forwards;
+}
+
+@keyframes flash {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.4);
+  }
+  20% {
+    transform: translateX(-50%) scale(1);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+}
+
+[hidden] {
+  display: none !important;
+}
+
+@keyframes pop {
+  from {
+    transform: translateX(-50%) scale(0.3);
+  }
+  to {
+    transform: translateX(-50%) scale(1);
+  }
+}
