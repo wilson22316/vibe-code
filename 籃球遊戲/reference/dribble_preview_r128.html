@@ -1,0 +1,325 @@
+<title>運球動畫預覽</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+  /* 版面：左側動畫畫布，右側控制面板；手機改為上下堆疊 */
+  :root {
+    --bg: #eef1ec;
+    --stage: #dfe7e0;
+    --panel: #ffffff;
+    --fg: #1f2620;
+    --muted: #5e6b61;
+    --line: #cfd8d0;
+    --accent: #c46a3f;
+    --accent-ink: #ffffff;
+    --font-body: "Noto Sans TC", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151a16; --stage: #1d241f; --panel: #202822; --fg: #e7ede8;
+      --muted: #9cab9f; --line: #314036; --accent: #e08a5c; --accent-ink: #1a110c;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151a16; --stage: #1d241f; --panel: #202822; --fg: #e7ede8;
+    --muted: #9cab9f; --line: #314036; --accent: #e08a5c; --accent-ink: #1a110c;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--font-body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 16px;
+    box-sizing: border-box;
+  }
+  .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 16px; height: 100%; min-height: 560px; }
+  .stage { border-radius: 12px; overflow: hidden; position: relative; min-height: 440px; background: var(--stage); }
+  .stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .hint { position: absolute; left: 14px; bottom: 12px; font-size: 12px; color: #334133; background: rgba(255,255,255,.7); padding: 3px 8px; border-radius: 6px; pointer-events: none; }
+  .status { position: absolute; inset: 0; display: grid; place-items: center; font-size: 14px; color: var(--muted); pointer-events: none; }
+  .status[hidden] { display: none; }
+  aside { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  h1 { font-size: 20px; font-weight: 500; margin: 4px 0 0; text-wrap: balance; }
+  .sub { font-size: 13px; color: var(--muted); margin: 6px 0 0; line-height: 1.7; }
+  .label { font-size: 11px; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; }
+  .seg { display: flex; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .seg button { flex: 1; border: 0; background: transparent; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: inherit; font-size: 13px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+  .btns button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .row input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; font-size: 13px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  @media (max-width: 760px) {
+    body { height: auto; }
+    .wrap { grid-template-columns: 1fr; height: auto; }
+    .stage { height: 64vh; }
+  }
+</style>
+
+<div class="wrap">
+  <div class="stage" id="stage">
+    <div class="status" id="status">模型載入中…</div>
+    <div class="hint">拖曳旋轉 · 滾輪縮放 · 右鍵平移</div>
+  </div>
+  <aside>
+    <div>
+      <h1>運球動畫預覽</h1>
+      <p class="sub">手繪動畫風的原創運動員，26 根骨頭帶動身體，球的軌跡跟右手的推送對齊。兩段動畫都是循環播放。</p>
+    </div>
+    <div>
+      <p class="label">動畫</p>
+      <div class="seg" role="group" aria-label="動畫">
+        <button type="button" id="clip-Dribble" data-clip="Dribble" aria-pressed="true">原地運球</button>
+        <button type="button" id="clip-Idle" data-clip="Idle" aria-pressed="false">待機</button>
+      </div>
+    </div>
+    <div>
+      <p class="label">播放</p>
+      <div class="btns">
+        <button type="button" id="play" aria-pressed="true">暫停</button>
+        <button type="button" id="skel" aria-pressed="false">顯示骨架</button>
+        <button type="button" id="reset">重設視角</button>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <label for="speed">速度</label>
+        <input type="range" id="speed" min="0.25" max="2" step="0.25" value="1">
+        <span class="mono" id="speedVal">1.00x</span>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <span>時間</span>
+        <span class="mono" id="time">0.00 / 0.00 s</span>
+      </div>
+    </div>
+    <dl>
+      <dt>骨頭</dt><dd>26</dd>
+      <dt>三角形</dt><dd id="tris">—</dd>
+      <dt>檔案大小</dt><dd>583 KB</dd>
+      <dt>運球一循環</dt><dd>1.0 s（24 格）</dd>
+      <dt>待機一循環</dt><dd>2.0 s（48 格）</dd>
+    </dl>
+  </aside>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+  const GLB = "__GLB__";
+  const COLORS = {
+    Athlete_Skin: 0xf3c9a6, Athlete_Shirt: 0x6aa79c, Athlete_Shorts: 0x47607a, Athlete_Socks: 0xf4efe4,
+    Athlete_Shoes: 0xd97b5c, Athlete_Sole: 0xf4efe4, Athlete_Hair: 0x3d2b22, Athlete_Eyes: 0x2b201b,
+    Athlete_EyeWhite: 0xfcf9f2, Athlete_Mouth: 0xc47d67, Ball_Leather: 0xd9803f, Ball_Seam: 0x3a2a22
+  };
+
+  const stage = document.getElementById('stage');
+  const status = document.getElementById('status');
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  stage.prepend(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 100);
+  const HOME_POS = new THREE.Vector3(-2.2, 1.35, 3.0);
+  const HOME_TGT = new THREE.Vector3(-0.1, 0.78, 0.1);
+  camera.position.copy(HOME_POS);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.copy(HOME_TGT);
+  controls.enableDamping = true;
+  controls.minDistance = 1.2;
+  controls.maxDistance = 9;
+  controls.maxPolarAngle = Math.PI * 0.495;
+  controls.update();
+
+  scene.add(new THREE.HemisphereLight(0xfff3e0, 0x9a8fb0, 0.6));
+  const sun = new THREE.DirectionalLight(0xfff0d6, 0.7);
+  sun.position.set(-2.5, 5, 3.5);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  Object.assign(sun.shadow.camera, { left: -2, right: 2, top: 2.5, bottom: -1 });
+  sun.shadow.radius = 4;
+  scene.add(sun);
+  const shadowCatcher = new THREE.Mesh(new THREE.CircleGeometry(2.4, 64), new THREE.ShadowMaterial({ opacity: 0.22 }));
+  shadowCatcher.rotation.x = -Math.PI / 2;
+  shadowCatcher.receiveShadow = true;
+  scene.add(shadowCatcher);
+
+  function seeded(seed) { return () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }; }
+  function backdrop() {
+    const c = document.createElement('canvas'); c.width = 1024; c.height = 768;
+    const x = c.getContext('2d');
+    const g = x.createLinearGradient(0, 0, 0, c.height);
+    g.addColorStop(0, '#6fa9d8'); g.addColorStop(0.55, '#a9d1ea'); g.addColorStop(1, '#e7f2ec');
+    x.fillStyle = g; x.fillRect(0, 0, c.width, c.height);
+    const rnd = seeded(11);
+    const cloud = (cx, cy, s) => {
+      const blobs = Array.from({ length: 9 }, () => [(rnd() - 0.5) * 220 * s, (rnd() - 0.2) * 60 * s, (40 + rnd() * 50) * s]);
+      blobs.forEach(([ox, oy, r]) => { x.fillStyle = 'rgba(214,226,238,0.9)'; x.beginPath(); x.arc(cx + ox + 6 * s, cy + oy + 10 * s, r, 0, Math.PI * 2); x.fill(); });
+      blobs.forEach(([ox, oy, r]) => { x.fillStyle = 'rgba(255,255,255,0.96)'; x.beginPath(); x.arc(cx + ox, cy + oy, r, 0, Math.PI * 2); x.fill(); });
+    };
+    cloud(250, 230, 1.0); cloud(760, 170, 0.8); cloud(560, 360, 0.55); cloud(110, 420, 0.45);
+    const h = x.createLinearGradient(0, 560, 0, 768);
+    h.addColorStop(0, '#9cc58a'); h.addColorStop(1, '#6f9e5d');
+    x.fillStyle = h; x.beginPath(); x.moveTo(0, 600);
+    for (let i = 0; i <= 16; i++) x.lineTo(i * 64, 585 + Math.sin(i * 0.9) * 18 + rnd() * 10);
+    x.lineTo(1024, 768); x.lineTo(0, 768); x.fill();
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t;
+  }
+  function grass() {
+    const c = document.createElement('canvas'); c.width = c.height = 512;
+    const x = c.getContext('2d');
+    const rg = x.createRadialGradient(256, 256, 30, 256, 256, 256);
+    rg.addColorStop(0, '#93bf74'); rg.addColorStop(0.75, '#86b56a'); rg.addColorStop(1, 'rgba(134,181,106,0)');
+    x.fillStyle = rg; x.fillRect(0, 0, 512, 512);
+    const rnd = seeded(5);
+    for (let i = 0; i < 900; i++) {
+      const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * 220;
+      const px = 256 + Math.cos(a) * d, py = 256 + Math.sin(a) * d;
+      x.strokeStyle = rnd() > 0.5 ? 'rgba(92,140,72,0.55)' : 'rgba(176,206,128,0.55)';
+      x.lineWidth = 2; x.beginPath(); x.moveTo(px, py); x.lineTo(px + (rnd() - 0.5) * 6, py - 6 - rnd() * 8); x.stroke();
+    }
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding;
+    const m = new THREE.Mesh(new THREE.CircleGeometry(2.8, 64), new THREE.MeshBasicMaterial({ map: t, transparent: true }));
+    m.rotation.x = -Math.PI / 2; m.position.y = -0.003; return m;
+  }
+  scene.background = backdrop();
+  scene.add(grass());
+
+  const gradient = new THREE.DataTexture(new Uint8Array([120, 170, 215, 245]), 4, 1, THREE.LuminanceFormat);
+  gradient.minFilter = gradient.magFilter = THREE.NearestFilter;
+  gradient.generateMipmaps = false; gradient.needsUpdate = true;
+
+  function outlineMaterial(width, color, skinning) {
+    const m = new THREE.MeshBasicMaterial({ color, side: THREE.BackSide, skinning });
+    m.onBeforeCompile = s => {
+      s.vertexShader = s.vertexShader.replace('#include <begin_vertex>',
+        'vec3 transformed = vec3( position ) + normalize( normal ) * ' + width.toFixed(4) + ';');
+    };
+    return m;
+  }
+  function b64ToBuffer(b64) {
+    const bin = atob(b64), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  let mixer = null, actions = {}, active = null, skeletonHelper = null, playing = true, speed = 1;
+  new THREE.GLTFLoader().parse(b64ToBuffer(GLB), '', gltf => {
+    const root = gltf.scene;
+    let tris = 0;
+    const meshes = [];
+    root.traverse(o => { if (o.isMesh) meshes.push(o); });
+    meshes.forEach(o => {
+      o.castShadow = true;
+      o.frustumCulled = false;
+      const g = o.geometry;
+      tris += g.index ? g.index.count / 3 : g.attributes.position.count / 3;
+      const name = o.material.name;
+      const col = COLORS[name] !== undefined ? new THREE.Color(COLORS[name]).convertSRGBToLinear() : o.material.color.clone();
+      o.material = new THREE.MeshToonMaterial({ color: col, gradientMap: gradient, skinning: !!o.isSkinnedMesh });
+      if (/Eye|Mouth|Ball_Seam/.test(name)) return;
+      let line;
+      if (o.isSkinnedMesh) {
+        line = new THREE.SkinnedMesh(g, outlineMaterial(0.0045, 0x4a3326, true));
+        line.bind(o.skeleton, o.bindMatrix);
+      } else {
+        line = new THREE.Mesh(g, outlineMaterial(0.0045, 0x4a3326, false));
+      }
+      line.frustumCulled = false;
+      line.renderOrder = -1;
+      if (o.isSkinnedMesh) o.parent.add(line); else o.add(line);
+    });
+    scene.add(root);
+    document.getElementById('tris').textContent = Math.round(tris).toLocaleString('en-US');
+
+    skeletonHelper = new THREE.SkeletonHelper(root);
+    skeletonHelper.visible = false;
+    skeletonHelper.material.depthTest = false;
+    skeletonHelper.material.linewidth = 2;
+    scene.add(skeletonHelper);
+
+    mixer = new THREE.AnimationMixer(root);
+    gltf.animations.forEach(clip => { actions[clip.name] = mixer.clipAction(clip); });
+    play('Dribble', 0);
+    status.hidden = true;
+  }, err => { status.textContent = '模型載入失敗：' + (err && err.message ? err.message : err); });
+
+  function play(name, fade = 0.35) {
+    const next = actions[name];
+    if (!next || next === active) return;
+    next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
+    if (active && fade > 0) active.crossFadeTo(next, fade, false);
+    else if (active) active.stop();
+    active = next;
+    document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.clip === name)));
+  }
+
+  window.__seek = (name, t) => {
+    if (!mixer) return false;
+    Object.values(actions).forEach(a => a.stop());
+    active = null; play(name, 0);
+    mixer.setTime(t); playing = false;
+    document.getElementById('play').textContent = '播放';
+    document.getElementById('play').setAttribute('aria-pressed', 'false');
+    return true;
+  };
+
+  function resize() {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+  new ResizeObserver(resize).observe(stage);
+  resize();
+
+  const clock = new THREE.Clock();
+  const timeEl = document.getElementById('time');
+  (function loop() {
+    const dt = clock.getDelta();
+    if (mixer && playing) mixer.update(dt * speed);
+    if (active) {
+      const dur = active.getClip().duration;
+      timeEl.textContent = (active.time % dur).toFixed(2) + ' / ' + dur.toFixed(2) + ' s';
+    }
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  })();
+
+  document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => play(b.dataset.clip)));
+  const playBtn = document.getElementById('play');
+  playBtn.addEventListener('click', () => {
+    playing = !playing;
+    playBtn.textContent = playing ? '暫停' : '播放';
+    playBtn.setAttribute('aria-pressed', String(playing));
+  });
+  const skelBtn = document.getElementById('skel');
+  skelBtn.addEventListener('click', () => {
+    if (!skeletonHelper) return;
+    skeletonHelper.visible = !skeletonHelper.visible;
+    skelBtn.setAttribute('aria-pressed', String(skeletonHelper.visible));
+  });
+  const speedEl = document.getElementById('speed');
+  speedEl.addEventListener('input', () => {
+    speed = parseFloat(speedEl.value);
+    document.getElementById('speedVal').textContent = speed.toFixed(2) + 'x';
+  });
+  document.getElementById('reset').addEventListener('click', () => {
+    camera.position.copy(HOME_POS); controls.target.copy(HOME_TGT); controls.update();
+  });
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    playing = false; playBtn.textContent = '播放'; playBtn.setAttribute('aria-pressed', 'false');
+  }
+</script>
