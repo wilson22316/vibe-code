@@ -1,0 +1,4 @@
+node_modules/
+dist/
+blender/out/
+__pycache__/

@@ -1,0 +1,376 @@
+<title>運動員風格比較</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+  /* 版面：上方風格切換列，左側大畫布，右側規格與說明；手機改為上下堆疊 */
+  :root {
+    --bg: #eef1f0;
+    --stage: #dfe5e3;
+    --panel: #ffffff;
+    --fg: #1c2624;
+    --muted: #5d6b68;
+    --line: #cdd6d3;
+    --accent: #2a9d8f;
+    --accent-ink: #ffffff;
+    --font-body: "Noto Sans TC", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141a19; --stage: #1c2423; --panel: #1f2827; --fg: #e6eeec;
+      --muted: #9aa9a6; --line: #2f3b39; --accent: #3fb8a8; --accent-ink: #0d1514;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141a19; --stage: #1c2423; --panel: #1f2827; --fg: #e6eeec;
+    --muted: #9aa9a6; --line: #2f3b39; --accent: #3fb8a8; --accent-ink: #0d1514;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--font-body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 16px;
+    box-sizing: border-box;
+  }
+  .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 280px; grid-template-rows: auto minmax(0, 1fr); gap: 12px 16px; height: 100%; min-height: 560px; }
+  .tabs { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: fit-content; max-width: 100%; }
+  .tabs button { border: 0; background: transparent; }
+  .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+  .stage { background: var(--stage); border-radius: 12px; overflow: hidden; position: relative; min-height: 420px; }
+  .stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .hint { position: absolute; left: 14px; bottom: 12px; font-size: 12px; color: var(--muted); pointer-events: none; }
+  .status { position: absolute; inset: 0; display: grid; place-items: center; font-size: 14px; color: var(--muted); pointer-events: none; }
+  .status[hidden] { display: none; }
+  aside { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  h1 { font-size: 20px; font-weight: 500; margin: 4px 0 0; text-wrap: balance; }
+  .sub { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.7; }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; font-size: 13px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: inherit; font-size: 13px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+  .btns button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .label { font-size: 11px; letter-spacing: .08em; color: var(--muted); margin: 0 0 6px; }
+  @media (max-width: 760px) {
+    body { height: auto; }
+    .wrap { grid-template-columns: 1fr; height: auto; }
+    .stage { height: 68vh; }
+  }
+</style>
+
+<div class="wrap">
+  <div class="tabs" role="tablist" aria-label="風格">
+    <button type="button" role="tab" id="tab-lowpoly" data-style="lowpoly" aria-selected="true">Low poly</button>
+    <button type="button" role="tab" id="tab-toon" data-style="toon" aria-selected="false">卡通渲染</button>
+    <button type="button" role="tab" id="tab-simple" data-style="simple" aria-selected="false">簡化人形</button>
+    <button type="button" role="tab" id="tab-real" data-style="real" aria-selected="false">寫實人形</button>
+    <button type="button" role="tab" id="tab-painted" data-style="painted" aria-selected="false">手繪動畫風</button>
+  </div>
+  <div class="stage" id="stage">
+    <div class="status" id="status">模型載入中…</div>
+    <div class="hint">拖曳旋轉 · 滾輪縮放 · 右鍵平移</div>
+  </div>
+  <aside>
+    <div>
+      <h1 id="name">Low poly</h1>
+      <p class="sub" id="desc"></p>
+    </div>
+    <dl>
+      <dt>三角形</dt><dd id="tris">—</dd>
+      <dt>檔案大小</dt><dd id="size">—</dd>
+      <dt>身高</dt><dd id="height">—</dd>
+      <dt>著色方式</dt><dd id="shading">—</dd>
+    </dl>
+    <div>
+      <p class="label">操作</p>
+      <div class="btns">
+        <button id="spin" type="button" aria-pressed="true">自動旋轉</button>
+        <button id="wire" type="button" aria-pressed="false">顯示線框</button>
+        <button id="reset" type="button">重設視角</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+  const STYLES = {
+    lowpoly: {
+      name: 'Low poly', b64: "__LOWPOLY__", size: '188 KB', height: '1.80 m', shading: '平面著色',
+      desc: '每個面都是一塊平平的色塊，稜角分明。第二版補上了五官、耳朵、有瀏海的頭髮、手掌與五根手指，以及有鞋底的低筒球鞋，仍是面數最少、載入最快的版本。'
+    },
+    toon: {
+      name: '卡通渲染', b64: "__TOON__", size: '131 KB', height: '1.85 m', shading: 'Toon + 描邊',
+      desc: '明暗只分三階，加上黑色外框，看起來像動畫。頭和眼睛稍微放大、頭髮做成尖角，比較有角色感。描邊和色階是在網頁端用 three.js 算出來的，不在 .glb 檔裡。'
+    },
+    simple: {
+      name: '簡化人形', b64: "__SIMPLE__", size: '131 KB', height: '1.78 m', shading: '平滑著色',
+      desc: '比例接近真人，表面圓滑，手臂和小腿有一點肌肉起伏。臉部只有眼睛和鼻子，質感偏向人體模型。'
+    },
+    real: {
+      name: '寫實人形', b64: "__REAL__", size: '2.4 MB', height: '1.88 m', shading: '顏色貼圖',
+      desc: '用開源的 MakeHuman（MPFB）參數化產生的原創人物，皮膚、頭髮、衣服、鞋子都是 CC0 素材。有完整五官和手指，姿勢是 A-pose。網頁版只保留顏色貼圖，皮膚的次表面散射等效果只有在 Blender 裡看得到。'
+    },
+    painted: {
+      name: '手繪動畫風', b64: "__PAINTED__", size: '244 KB', height: '1.80 m', shading: '柔和色階 + 褐色描邊',
+      desc: '參考日本手繪動畫電影的溫暖氛圍：圓潤的造型、低飽和的配色、偏暖的陰影、細細的褐色描邊，再配上手繪感的天空、雲和草地。角色和場景都是原創的，色階、描邊和背景都在網頁端產生。'
+    }
+  };
+
+  const stage = document.getElementById('stage');
+  const status = document.getElementById('status');
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  stage.prepend(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 100);
+  const HOME_POS = new THREE.Vector3(2.4, 1.5, 3.6);
+  const HOME_TGT = new THREE.Vector3(0, 0.92, 0);
+  camera.position.copy(HOME_POS);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.copy(HOME_TGT);
+  controls.enableDamping = true;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 1.6;
+  controls.minDistance = 1.2;
+  controls.maxDistance = 10;
+  controls.update();
+
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x8a8478, 0.75);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffffff, 0.85);
+  sun.position.set(3, 5, 4);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -2; sun.shadow.camera.right = 2;
+  sun.shadow.camera.top = 2.5; sun.shadow.camera.bottom = -0.5;
+  sun.shadow.radius = 4;
+  scene.add(sun);
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(1.6, 48), new THREE.ShadowMaterial({ opacity: 0.18 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  const toonGradient = new THREE.DataTexture(new Uint8Array([70, 150, 255]), 3, 1, THREE.LuminanceFormat);
+  toonGradient.minFilter = THREE.NearestFilter;
+  toonGradient.magFilter = THREE.NearestFilter;
+  toonGradient.generateMipmaps = false;
+  toonGradient.needsUpdate = true;
+
+  const paintedGradient = new THREE.DataTexture(new Uint8Array([120, 170, 215, 245]), 4, 1, THREE.LuminanceFormat);
+  paintedGradient.minFilter = THREE.NearestFilter;
+  paintedGradient.magFilter = THREE.NearestFilter;
+  paintedGradient.generateMipmaps = false;
+  paintedGradient.needsUpdate = true;
+  const PAINTED_COLORS = {
+    Athlete_Skin: 0xf3c9a6, Athlete_Shirt: 0x6aa79c, Athlete_Shorts: 0x47607a, Athlete_Socks: 0xf4efe4,
+    Athlete_Shoes: 0xd97b5c, Athlete_Sole: 0xf4efe4, Athlete_Hair: 0x3d2b22, Athlete_Eyes: 0x2b201b,
+    Athlete_EyeWhite: 0xfcf9f2, Athlete_Mouth: 0xc47d67
+  };
+
+  function paintedBackdrop() {
+    const c = document.createElement('canvas');
+    c.width = 1024; c.height = 768;
+    const x = c.getContext('2d');
+    const g = x.createLinearGradient(0, 0, 0, c.height);
+    g.addColorStop(0, '#6fa9d8'); g.addColorStop(0.55, '#a9d1ea'); g.addColorStop(1, '#e7f2ec');
+    x.fillStyle = g; x.fillRect(0, 0, c.width, c.height);
+    let seed = 11;
+    const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+    const cloud = (cx, cy, s) => {
+      for (let i = 0; i < 9; i++) {
+        const ox = (rnd() - 0.5) * 220 * s, oy = (rnd() - 0.2) * 60 * s, r = (40 + rnd() * 50) * s;
+        x.fillStyle = 'rgba(214,226,238,0.9)';
+        x.beginPath(); x.arc(cx + ox + 6 * s, cy + oy + 10 * s, r, 0, Math.PI * 2); x.fill();
+      }
+      seed -= 7;
+      for (let i = 0; i < 9; i++) {
+        const ox = (rnd() - 0.5) * 220 * s, oy = (rnd() - 0.2) * 60 * s, r = (40 + rnd() * 50) * s;
+        x.fillStyle = 'rgba(255,255,255,0.96)';
+        x.beginPath(); x.arc(cx + ox, cy + oy, r, 0, Math.PI * 2); x.fill();
+      }
+    };
+    cloud(250, 230, 1.0); cloud(760, 170, 0.8); cloud(560, 360, 0.55); cloud(110, 420, 0.45);
+    const h = x.createLinearGradient(0, 560, 0, 768);
+    h.addColorStop(0, '#9cc58a'); h.addColorStop(1, '#6f9e5d');
+    x.fillStyle = h;
+    x.beginPath(); x.moveTo(0, 600);
+    for (let i = 0; i <= 16; i++) x.lineTo(i * 64, 585 + Math.sin(i * 0.9) * 18 + rnd() * 10);
+    x.lineTo(1024, 768); x.lineTo(0, 768); x.fill();
+    const t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    return t;
+  }
+  function grassDisc() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 512;
+    const x = c.getContext('2d');
+    const rg = x.createRadialGradient(256, 256, 30, 256, 256, 256);
+    rg.addColorStop(0, '#93bf74'); rg.addColorStop(0.75, '#86b56a'); rg.addColorStop(1, 'rgba(134,181,106,0)');
+    x.fillStyle = rg; x.fillRect(0, 0, 512, 512);
+    let seed = 5;
+    const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+    for (let i = 0; i < 900; i++) {
+      const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * 220;
+      const px = 256 + Math.cos(a) * d, py = 256 + Math.sin(a) * d;
+      x.strokeStyle = rnd() > 0.5 ? 'rgba(92,140,72,0.55)' : 'rgba(176,206,128,0.55)';
+      x.lineWidth = 2;
+      x.beginPath(); x.moveTo(px, py); x.lineTo(px + (rnd() - 0.5) * 6, py - 6 - rnd() * 8); x.stroke();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    const m = new THREE.Mesh(new THREE.CircleGeometry(2.6, 64), new THREE.MeshBasicMaterial({ map: t, transparent: true }));
+    m.rotation.x = -Math.PI / 2;
+    m.position.y = -0.003;
+    return m;
+  }
+  let paintedBg = null, paintedGrass = null;
+
+  function outlineMaterial(width, color = 0x161616) {
+    const m = new THREE.MeshBasicMaterial({ color, side: THREE.BackSide });
+    m.onBeforeCompile = shader => {
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        'vec3 transformed = vec3( position ) + normalize( normal ) * ' + width.toFixed(4) + ';'
+      );
+    };
+    return m;
+  }
+
+  function b64ToBuffer(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  const loader = new THREE.GLTFLoader();
+  const models = {};
+  let current = null;
+  let wireOn = false;
+
+  function prepare(key, gltf) {
+    const root = gltf.scene;
+    root.position.set(0, 0, 0);
+    root.traverse(o => { if (o.isMesh || o.isGroup || o.isObject3D) { if (o !== root && o.parent === root) o.position.set(0, 0, 0); } });
+    const mats = [];
+    let tris = 0;
+    const meshes = [];
+    root.traverse(o => { if (o.isMesh) meshes.push(o); });
+    meshes.forEach(o => {
+      o.castShadow = true;
+      const g = o.geometry;
+      tris += g.index ? g.index.count / 3 : g.attributes.position.count / 3;
+      const src = o.material;
+      if (key === 'lowpoly') {
+        src.flatShading = true; src.needsUpdate = true; mats.push(src);
+      } else if (key === 'toon') {
+        const t = new THREE.MeshToonMaterial({ color: src.color.clone(), gradientMap: toonGradient });
+        o.material = t; mats.push(t);
+        const outline = new THREE.Mesh(g, outlineMaterial(0.009));
+        outline.renderOrder = -1;
+        o.add(outline);
+      } else if (key === 'painted') {
+        const col = PAINTED_COLORS[src.name] !== undefined ? new THREE.Color(PAINTED_COLORS[src.name]).convertSRGBToLinear() : src.color.clone();
+        const t = new THREE.MeshToonMaterial({ color: col, gradientMap: paintedGradient });
+        o.material = t; mats.push(t);
+        if (!/Eye|Mouth/.test(src.name)) {
+          const outline = new THREE.Mesh(g, outlineMaterial(0.0045, 0x4a3326));
+          outline.renderOrder = -1;
+          o.add(outline);
+        }
+      } else if (key === 'real') {
+        if (src.transparent) { src.alphaTest = 0.45; src.transparent = false; src.depthWrite = true; src.side = THREE.DoubleSide; }
+        src.needsUpdate = true; mats.push(src);
+      } else {
+        src.flatShading = false; src.roughness = 0.75; src.needsUpdate = true; mats.push(src);
+      }
+    });
+    return { root, mats, tris: Math.round(tris) };
+  }
+
+  function show(key) {
+    const s = STYLES[key];
+    document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.style === key)));
+    document.getElementById('name').textContent = s.name;
+    document.getElementById('desc').textContent = s.desc;
+    document.getElementById('size').textContent = s.size;
+    document.getElementById('height').textContent = s.height;
+    document.getElementById('shading').textContent = s.shading;
+    if (current) scene.remove(current.root);
+    if (!models[key]) {
+      status.hidden = false;
+      status.textContent = '模型載入中…';
+      try {
+        loader.parse(b64ToBuffer(s.b64), '', gltf => {
+          models[key] = prepare(key, gltf);
+          status.hidden = true;
+          show(key);
+        }, err => { status.textContent = '模型載入失敗：' + (err && err.message ? err.message : err); });
+      } catch (e) { status.textContent = '模型載入失敗：' + e.message; }
+      return;
+    }
+    current = models[key];
+    scene.add(current.root);
+    const painted = key === 'painted';
+    if (painted && !paintedBg) { paintedBg = paintedBackdrop(); paintedGrass = grassDisc(); scene.add(paintedGrass); }
+    scene.background = painted ? paintedBg : null;
+    if (paintedGrass) paintedGrass.visible = painted;
+    hemi.color.set(painted ? 0xfff3e0 : 0xffffff);
+    hemi.groundColor.set(painted ? 0x9a8fb0 : 0x8a8478);
+    hemi.intensity = painted ? 0.6 : 0.75;
+    sun.color.set(painted ? 0xfff0d6 : 0xffffff);
+    sun.intensity = painted ? 0.7 : 0.85;
+    ground.material.opacity = painted ? 0.22 : 0.18;
+    current.mats.forEach(m => { m.wireframe = wireOn; });
+    document.getElementById('tris').textContent = current.tris.toLocaleString('en-US');
+  }
+
+  function resize() {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  new ResizeObserver(resize).observe(stage);
+  resize();
+  (function loop() {
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  })();
+
+  document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.style)));
+  const spin = document.getElementById('spin');
+  const wire = document.getElementById('wire');
+  spin.addEventListener('click', () => {
+    controls.autoRotate = !controls.autoRotate;
+    spin.setAttribute('aria-pressed', String(controls.autoRotate));
+  });
+  wire.addEventListener('click', () => {
+    wireOn = !wireOn;
+    wire.setAttribute('aria-pressed', String(wireOn));
+    if (current) current.mats.forEach(m => { m.wireframe = wireOn; });
+  });
+  document.getElementById('reset').addEventListener('click', () => {
+    camera.position.copy(HOME_POS);
+    controls.target.copy(HOME_TGT);
+    controls.update();
+  });
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    controls.autoRotate = false;
+    spin.setAttribute('aria-pressed', 'false');
+  }
+  show('lowpoly');
+</script>
