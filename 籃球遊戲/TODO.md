@@ -7,9 +7,9 @@
 
 ### 專案建立
 1. [x] 加 `.gitignore`（`node_modules/`、`dist/`、`blender/out/`、`__pycache__/`）
-2. [ ] 用 Vite 建立 Vue 3 專案、安裝 three.js
-3. [ ] 核對安裝的 three.js 版本與 `reference/` 舊寫法的差異
-4. [ ] 更新 README 的開發指令（拿掉「預定」）
+2. [x] 用 Vite 建立 Vue 3 專案、安裝 three.js
+3. [x] 核對安裝的 three.js 版本與 `reference/` 舊寫法的差異
+4. [x] 更新 README 的開發指令（拿掉「預定」）
 
 ### 先讓角色動起來
 5. [ ] 基本場景：相機、地面、燈光（半球光＋帶陰影的平行光，重新調強度）

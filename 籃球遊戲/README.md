@@ -33,7 +33,7 @@ reference/                       早期網頁原型（three.js r128 舊寫法，
 
 ## 開發
 
-> 前端專案尚未建立，以下為預定指令。
+需要 Node.js（目前用 v24）。開發伺服器在 http://localhost:5173（Vite 預設）。
 
 ```powershell
 npm install      # 安裝套件

@@ -99,7 +99,9 @@ root（不變形）
 - `import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'`
 - 不要再呼叫 `Color.convertSRGBToLinear()`（新版會自動處理色彩空間）
 - `LuminanceFormat` → `RedFormat`；材質的 `skinning: true` 拿掉
-- 以安裝的版本為準再核對一次
+- `texture.encoding = sRGBEncoding` → `texture.colorSpace = SRGBColorSpace`；`renderer.outputEncoding` 拿掉（新版預設就是 sRGB 輸出）
+- 描邊用 `onBeforeCompile` 取代 `#include <begin_vertex>` 的寫法在新版仍可用
+- 以上已對 three.js r187（0.187.0）核對過；升級 three.js 時再核對一次
 
 ## 開發規則
 
