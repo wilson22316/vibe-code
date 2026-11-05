@@ -1155,8 +1155,74 @@ def make_pass(P):
         P.key(f + 1, B_out + V((0, -7.0, 0.3)) * (gf / FPS), 0.0)   # 球往前飛走（隱藏）
 
 
+CATCH_SEEN, CATCH_AT, CATCH_GIVE, CATCH_END = 3, 8, 12, 20
+# 接球的手型：雙手在球的後外側、掌心朝前迎球、手指朝上（兩手拇指相對），格式同 GRIP_TT
+GRIP_CATCH = (V((-0.60, 0.78, 0.0)), V((-0.2, -0.2, 1.0)), V((0.60, 0.78, 0.0)), V((0.2, -0.2, 1.0)))
+
+
+def make_catch(P):
+    """接球（單次 20 格）：從 Idle 第 0 格開始，雙腳換成三威脅站姿、屈膝，雙手舉到胸前張開迎球；
+    球從前方飛來（第 3 格出現），第 8 格（0.33 s）雙手接住，往胸前收（緩衝）到第 12 格，
+    第 20 格移到三威脅位置，結束姿勢與 TripleThreat 第 0 格相同。原地動作，不推動。"""
+    P.new_action("Catch")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    R0, L0 = P.ankle_rest(".R"), P.ankle_rest(".L")
+    aR_tt, aL_tt = R0 + V((-0.10, 0.07, 0)), L0 + V((0.10, -0.07, 0))   # 三威脅站姿（同 make_triple_threat）
+
+    def move(a, b, f, f0, f1, h):                        # 腳從 a 抬起移到 b（f0～f1），中途抬高 h
+        u = min(1.0, max(0.0, (f - f0) / (f1 - f0)))
+        return a.lerp(b, ease(u)) + V((0, 0, h * math.sin(math.pi * u)))
+
+    hipsK = [(0, V((0, 0, -0.012))), (CATCH_AT, V((0, 0.0, -0.14))), (CATCH_GIVE, V((0, 0.03, -0.21))),
+             (CATCH_END, V((0, 0.02, -0.19)))]
+    leanK = [(0, V((0, 0, 0))), (CATCH_AT, V((0.08, 0.05, 0.02))), (CATCH_GIVE, V((0.14, 0.09, 0.04))),
+             (CATCH_END, V((0.14, 0.10, 0.05)))]
+    headK = [(0, 0.02), (CATCH_AT, -0.12), (CATCH_END, -0.22)]
+    # 手肘：Idle 朝後 → 迎球時朝外下方 → 三威脅
+    poleRK = [(0, V((-0.35, 1.0, -0.25))), (6, V((-0.6, 0.2, -0.8))), (CATCH_GIVE, V((-0.7, 0.4, -0.6))),
+              (CATCH_END, V((-0.6, 0.8, -0.3)))]
+    poleLK = [(0, V((0.35, 1.0, -0.25))), (6, V((0.6, 0.2, -0.8))), (CATCH_GIVE, V((0.7, 0.4, -0.6))),
+              (CATCH_END, V((0.6, 0.6, -0.6)))]
+    B_catch, B_chest, B_tt = V((-0.02, -0.46, 1.14)), V((-0.04, -0.31, 1.08)), V((-0.22, -0.25, 0.96))
+    idleR, idleL = V((-0.215, -0.03, 0.85)), V((0.215, -0.03, 0.85))   # Idle 第 0 格的手腕
+
+    def pose_body(f, wR, wL):
+        P.pose(f"C{f}", smooth_pts(f, hipsK), tuple(smooth_pts(f, leanK)), smooth_pts(f, headK), wR, wL,
+               move(R0, aR_tt, f, 1, 6, 0.04), move(L0, aL_tt, f, 3, 8, 0.04),
+               poleR=smooth_pts(f, poleRK), poleL=smooth_pts(f, poleLK))
+
+    sR, sL = GRIP_CATCH[0].normalized(), GRIP_CATCH[2].normalized()
+    dR = (GRIP_CATCH[1] - sR * GRIP_CATCH[1].dot(sR)).normalized()
+    dL = (GRIP_CATCH[3] - sL * GRIP_CATCH[3].dot(sL)).normalized()
+    reach = R_BALL / P.s + PALM_T
+    for f in range(CATCH_END + 1):
+        if f < CATCH_AT:                                 # 雙手舉到接球點、張開等球（離球面的空隙到第 8 格收到 0）
+            k = ease(min(1.0, f / 6))
+            margin = 0.06 * (CATCH_AT - f) / CATCH_AT
+            tR = B_catch + Z + sR * (reach + margin) - dR * PALM_A
+            tL = B_catch + Z + sL * (reach + margin) - dL * PALM_A
+            pose_body(f, (idleR + Z).lerp(tR, k), (idleL + Z).lerp(tL, k))
+            P.palm("hand.R", dR, -sR, k)
+            P.palm("hand.L", dL, -sL, k)
+            if f < CATCH_SEEN:                           # 球還沒進畫面
+                P.key(f + 1, B_catch + Z + V((0, -1.6, 0.15)), 0.0)
+            else:                                        # 球從前方飛來（約 7 m/s，略帶弧度）
+                tau = (CATCH_AT - f) / FPS
+                P.key(f + 1, B_catch + Z + V((0, -7.0 * tau, 0.9 * tau - 4.9 * tau * tau * 0.3)))
+            continue
+        if f <= CATCH_GIVE:                              # 接住後往胸前收
+            B = B_catch.lerp(B_chest, ease((f - CATCH_AT) / (CATCH_GIVE - CATCH_AT)))
+        else:                                            # 移到三威脅位置
+            B = B_chest.lerp(B_tt, ease((f - CATCH_GIVE) / (CATCH_END - CATCH_GIVE)))
+        w = ease((f - CATCH_AT) / (CATCH_END - CATCH_AT))   # 手型從接球換成三威脅
+        g = [a.lerp(b, w) for a, b in zip(GRIP_CATCH, GRIP_TT)]
+        P.hold_two(B + Z, g[0], g[1], g[2], g[3], lambda wR, wL: pose_body(f, wR, wL))
+        P.key(f + 1, B + Z)
+
+
 CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot",
-         "Layup", "Pass")
+         "Layup", "Pass", "Catch")
 
 
 def build_all(rig, ball, off, scale):
@@ -1177,6 +1243,7 @@ def build_all(rig, ball, off, scale):
     make_set_shot(P)
     make_layup(P)
     make_pass(P)
+    make_catch(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
