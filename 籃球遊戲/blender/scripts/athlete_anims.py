@@ -1696,8 +1696,61 @@ def make_dunk(P):
     MOVE_SPEEDS["Dunk"] = v0
 
 
+CEL = dict(LOAD=5, TAKEOFF=8, LAND=19, HOLD=26, END=36)
+CEL_HEIGHT = 0.25        # 縮放前；慶祝時跳起的高度（滯空 11 格）
+
+
+def make_celebrate(P):
+    """慶祝（單次 36 格）：從 Idle 第 0 格接起，屈膝蓄力，第 8 格跳起、雙手從身體前方往上高舉成 V 字（掌心朝前）、
+    抬頭大叫，第 19 格落地屈膝，雙手維持高舉到第 26 格，再從身體前方放下，第 36 格回到 Idle。原地，無球。
+    手指只有一根骨頭（一個關節），握不成拳頭，所以手是張開的。"""
+    C = CEL
+    P.new_action("Celebrate")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    aR, aL = P.ankle_rest(".R"), P.ankle_rest(".L")
+
+    def jump(f):
+        if not C["TAKEOFF"] <= f <= C["LAND"]:
+            return 0.0
+        s = (f - C["TAKEOFF"]) / (C["LAND"] - C["TAKEOFF"])
+        return 4 * CEL_HEIGHT * s * (1 - s)
+
+    hipsK = [(0, V((0, 0, -0.012))), (C["LOAD"], V((0, 0.03, -0.15))), (C["TAKEOFF"], V((0, 0, -0.02))),
+             (C["TAKEOFF"] + 3, V((0, 0, 0.0))), (C["LAND"], V((0, 0, -0.04))), (C["LAND"] + 3, V((0, 0.03, -0.16))),
+             (C["HOLD"], V((0, 0.02, -0.08))), (C["END"], V((0, 0, -0.012)))]
+    leanK = [(0, V((0, 0, 0))), (C["LOAD"], V((0.15, 0.05, 0.02))), (C["TAKEOFF"] + 3, V((-0.06, -0.05, -0.02))),
+             (C["LAND"], V((0.04, 0.02, 0.0))), (C["HOLD"], V((-0.02, -0.02, 0.0))), (C["END"], V((0, 0, 0)))]
+    headK = [(0, 0.02), (C["LOAD"], 0.10), (C["TAKEOFF"] + 3, -0.32), (C["LAND"], -0.22), (C["HOLD"], -0.25),
+             (C["END"], 0.02)]
+    # 右手腕（左手鏡像）：Idle → 收到腰前 → 從身體前方往上伸成 V 字 → 落地仍高舉 → 從身體前方放下 → Idle
+    wRK = [(0, V((-0.215, -0.03, 0.85))), (C["LOAD"], V((-0.22, -0.14, 0.98))), (C["TAKEOFF"], V((-0.30, -0.42, 1.38))),
+           (C["TAKEOFF"] + 3, V((-0.42, -0.14, 1.86))), (C["LAND"] + 2, V((-0.40, -0.14, 1.76))),
+           (C["HOLD"], V((-0.40, -0.16, 1.80))), (C["HOLD"] + 5, V((-0.30, -0.30, 1.20))), (C["END"], V((-0.215, -0.03, 0.85)))]
+    poleRK = [(0, V((-0.35, 1.0, -0.25))), (C["LOAD"], V((-0.4, 1.0, -0.4))), (C["TAKEOFF"], V((-0.4, 0.2, -1.0))),
+              (C["TAKEOFF"] + 3, V((-1.0, 0.2, -0.3))),
+              (C["HOLD"], V((-1.0, 0.2, -0.3))), (C["HOLD"] + 5, V((-0.4, 0.2, -1.0))), (C["END"], V((-0.35, 1.0, -0.25)))]
+
+    for f in range(C["END"] + 1):
+        J = V((0, 0, jump(f)))
+        u = 0.0 if not C["TAKEOFF"] < f < C["LAND"] else math.sin(math.pi * (f - C["TAKEOFF"]) / (C["LAND"] - C["TAKEOFF"]))
+        tuck, toe = V((0, 0.03, 0.06)) * u, 0.45 * u     # 空中腳微微收起、腳尖朝下
+        wR = smooth_pts(f, wRK) + Z + J
+        pR = smooth_pts(f, poleRK)
+        P.pose(f"CE{f}", smooth_pts(f, hipsK) + J, tuple(smooth_pts(f, leanK)), smooth_pts(f, headK),
+               wR, mirror_x(wR - Z) + Z, aR + J + tuck, aL + J + tuck, poleR=pR, poleL=mirror_x(pR),
+               footR=toe, footL=toe)
+        # 手指順著前臂；舉高時掌心朝前（手放下時朝身體），最後 6 格轉回 Idle
+        k = ease(min(1.0, f / C["LOAD"], max(0.0, (C["END"] - f) / 6)))
+        up = ease(min(1.0, max(0.0, (f - C["TAKEOFF"]) / 3), max(0.0, (C["HOLD"] + 4 - f) / 4)))
+        for sfx in (".R", ".L"):
+            fore = P.pb["forearm" + sfx].matrix.col[1].to_3d()
+            P.palm("hand" + sfx, fore, natural_palm(P, sfx).lerp(V((0, -1, 0)), up), k)
+        P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
+
+
 CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot",
-         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound", "Crossover", "BetweenLegs", "Dunk")
+         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound", "Crossover", "BetweenLegs", "Dunk", "Celebrate")
 
 
 def build_all(rig, ball, off, scale):
@@ -1725,6 +1778,7 @@ def build_all(rig, ball, off, scale):
     make_crossover(P)
     make_between_legs(P)
     make_dunk(P)
+    make_celebrate(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
