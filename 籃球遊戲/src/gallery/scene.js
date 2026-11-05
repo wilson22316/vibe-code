@@ -87,6 +87,10 @@ export function startClipsAtZero(clips) {
 }
 
 const BALL_NODE = 'Ball'
+// Sprint 是原地動作，遊戲以這個速度推動角色腳才不會打滑（見 CLAUDE.md；建置時印出的 sprint_speed 為準）
+const SPRINT_SPEED = 2.84
+// 推動時在 z = -2～2 m 之間跑，跑出去就從另一端再進來
+const RUN_HALF = 2
 const DEFAULT_CLIP = 'Idle'
 // 淡入淡出秒數，沿用 reference 原型的 0.35 s
 const FADE_SECONDS = 0.35
@@ -161,6 +165,24 @@ export function createGallery(container) {
   let ball = null
   const ballScale = new Map()
 
+  // 只在播 Sprint 時推動角色往前（+Z）；其他時候回到原點
+  let character = null
+  let sprintPush = false
+
+  function setSprintPush(on) {
+    sprintPush = on
+  }
+
+  function updateSprintPush(delta) {
+    if (!character) return
+    if (sprintPush && current?.getClip().name === 'Sprint') {
+      character.position.z += SPRINT_SPEED * delta * mixer.timeScale
+      if (character.position.z > RUN_HALF) character.position.z -= 2 * RUN_HALF
+    } else {
+      character.position.z = 0
+    }
+  }
+
   function takeBallScaleTrack(clip) {
     const i = clip.tracks.findIndex((t) => t.name === `${BALL_NODE}.scale`)
     if (i < 0) return
@@ -212,6 +234,7 @@ export function createGallery(container) {
       if (!NO_OUTLINE.test(o.material.name)) o.add(createOutline(o, outline))
     }
     scene.add(root)
+    character = root
 
     // 骨架線不做深度測試，被身體擋住也看得到
     skeletonHelper = new THREE.SkeletonHelper(root)
@@ -240,8 +263,10 @@ export function createGallery(container) {
 
   renderer.setAnimationLoop((time) => {
     timer.update(time)
-    mixer?.update(timer.getDelta())
+    const delta = timer.getDelta()
+    mixer?.update(delta)
     updateBallVisibility()
+    updateSprintPush(delta)
     controls.update()
     renderer.render(scene, camera)
   })
@@ -253,6 +278,7 @@ export function createGallery(container) {
     setSpeed,
     setSkeletonVisible,
     setGridVisible,
+    setSprintPush,
     dispose() {
       renderer.setAnimationLoop(null)
       resizeObserver.disconnect()

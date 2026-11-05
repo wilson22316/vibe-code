@@ -23,6 +23,9 @@ watch(showSkeleton, (value) => gallery.setSkeletonVisible(value))
 const showGrid = ref(false)
 watch(showGrid, (value) => gallery.setGridVisible(value))
 
+const sprintPush = ref(false)
+watch(sprintPush, (value) => gallery.setSprintPush(value))
+
 onMounted(() => {
   gallery = createGallery(stage.value)
   gallery.ready.then(
@@ -75,6 +78,10 @@ onBeforeUnmount(() => {
     <label class="toggle">
       <input v-model="showGrid" type="checkbox" />
       格線
+    </label>
+    <label class="toggle">
+      <input v-model="sprintPush" type="checkbox" />
+      Sprint 前進
     </label>
   </nav>
 </template>
