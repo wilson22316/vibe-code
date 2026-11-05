@@ -73,6 +73,7 @@ export class Rally {
     this.plan = null;
     this.spikeAim = null;
     this.ballState = null;
+    this.ball.gravity = BALL.gravity; // 強力球飛到一半被中斷，也要拿掉上旋
     this.clearReach();
   }
 
@@ -116,6 +117,7 @@ export class Rally {
     this.time = 0;
     this.ballState = null;
     this.noPlays = false;
+    this.ball.gravity = BALL.gravity; // 發球、舉球都不帶上旋
     this.lastSide = lastHitter.team.side;
     this.lastType = lastType;
     this.lastGrade = 'good';
@@ -421,9 +423,10 @@ export class Rally {
     if (!cross || cross.y < COURT.netHeight || cross.y > BLOCK.reach) return false;
     if (Math.abs(cross.x - blocker.pos.x) > width) return false;
 
-    // 球在網子攻擊方那一側被手擋下
+    // 球在網子攻擊方那一側被手擋下（強力球的上旋也被擋掉）
     const s = plan.side;
     const ball = this.ball;
+    ball.gravity = BALL.gravity;
     ball.pos.set(cross.x, cross.y, s * (BALL.radius + 0.05));
     const target = new THREE.Vector3();
     if (grade === 'perfect') {
@@ -449,6 +452,7 @@ export class Rally {
     const err = hardBall && grade === 'bad' ? HARD_BALL_BAD_ERROR : ERROR[grade];
     const jitter = () => (Math.random() * 2 - 1) * err;
     const target = new THREE.Vector3();
+    ball.gravity = BALL.gravity; // 只有強力扣球帶上旋（下面另外設）
 
     if (type === 'bump') {
       // 送到網前讓隊友舉
@@ -462,12 +466,14 @@ export class Rally {
     } else if (type === 'spike') {
       const aim = this.isHuman(side) ? this.humanSpikeAim() : aiSpikeTarget(ball.pos, side, this.sides[-side], block ?? null);
       target.set(aim.x + jitter(), BALL.radius, -side * aim.depth + jitter());
+      // 強力球帶強烈上旋：往下的加速度變大，可以打得又快又平還過網，過網後急墜
+      if (power) ball.gravity = BALL.gravity * POWER.spin;
       let time = SPIKE_TIME[grade] * (power ? POWER.speed : 1);
-      velocityForTime(ball.pos, target, time, ball.vel);
+      velocityForTime(ball.pos, target, time, ball.vel, ball.gravity);
       // 好球保證過網：太平就放慢、拋高一點；壞球不保證
       while (grade !== 'bad' && time < 1.4 && willHitNet(ball)) {
         time += 0.05;
-        velocityForTime(ball.pos, target, time, ball.vel);
+        velocityForTime(ball.pos, target, time, ball.vel, ball.gravity);
       }
     } else {
       // 球不夠高沒辦法扣，只能推過網
