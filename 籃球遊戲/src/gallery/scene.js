@@ -87,6 +87,8 @@ export function startClipsAtZero(clips) {
 }
 
 const DEFAULT_CLIP = 'Idle'
+// 淡入淡出秒數，沿用 reference 原型的 0.35 s
+const FADE_SECONDS = 0.35
 const ONCE_CLIPS = new Set(['Shoot'])
 
 export function createGallery(container) {
@@ -153,13 +155,13 @@ export function createGallery(container) {
   let current = null
   const timer = new THREE.Timer()
 
-  // 直接切換動作（淡入淡出在 TODO 第 16 項）。再點同一個動作會從頭播。
+  // 切換動作：新動作從頭播，和目前的動作淡入淡出。再點同一個動作會直接從頭播。
   function play(name) {
-    const action = actions[name]
-    if (!action) throw new Error(`模型裡找不到 ${name} 動作`)
-    current?.stop()
-    current = action
-    current.play()
+    const next = actions[name]
+    if (!next) throw new Error(`模型裡找不到 ${name} 動作`)
+    next.reset().setEffectiveWeight(1).play()
+    if (current && current !== next) next.crossFadeFrom(current, FADE_SECONDS, false)
+    current = next
   }
 
   // 播放速度倍數，作用在整個 mixer，切換動作後仍維持
