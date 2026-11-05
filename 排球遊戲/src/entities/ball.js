@@ -2,10 +2,16 @@ import * as THREE from 'three';
 import { BALL } from '../config.js';
 import { addOutline, toonMaterial } from '../fx/toon.js';
 
+// 滾轉的畫面轉速：一般是貼地滾動的 0.3 倍；上旋球轉得比較兇，但每秒最多 MAX_SPIN 弧度，太快看起來會像倒轉
+const ROLL_RATE = 0.3;
+const TOPSPIN_RATE = 1.2;
+const MAX_SPIN = 45;
+
 export class Ball {
   constructor() {
     this.pos = new THREE.Vector3();
     this.vel = new THREE.Vector3();
+    this.gravity = BALL.gravity; // 強力扣球的上旋會讓它變大（見 ballPhysics.js 的 stepBall）
 
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 24, 16), toonMaterial({ map: createBallTexture() }));
     this.mesh.castShadow = true;
@@ -31,13 +37,14 @@ export class Ball {
     this.aura.visible = on;
   }
 
-  // 同步畫面：位置 + 依移動方向滾轉
+  // 同步畫面：位置 + 依移動方向往前滾轉（上旋）
   syncMesh(dt) {
     this.mesh.position.copy(this.pos);
     const speed = Math.hypot(this.vel.x, this.vel.z);
     if (speed > 0.01) {
       _axis.set(this.vel.z, 0, -this.vel.x).normalize();
-      this.mesh.rotateOnWorldAxis(_axis, (speed / BALL.radius) * dt * 0.3);
+      const rate = this.gravity > BALL.gravity ? TOPSPIN_RATE : ROLL_RATE;
+      this.mesh.rotateOnWorldAxis(_axis, Math.min((speed / BALL.radius) * rate, MAX_SPIN) * dt);
     }
     this.time += dt;
     if (this.aura.visible) this.aura.scale.setScalar(1 + 0.15 * Math.sin(this.time * 25)); // 能量光脈動
