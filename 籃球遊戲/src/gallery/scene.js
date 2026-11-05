@@ -2,6 +2,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { createGrass, createSky } from './backdrop.js'
 
 const MODEL_URL = `${import.meta.env.BASE_URL}models/athlete_game.glb`
 
@@ -79,8 +80,7 @@ export function createGallery(container) {
   container.appendChild(renderer.domElement)
 
   const scene = new THREE.Scene()
-  // 暫時的底色；藍天白雲背景在 TODO 第 14 項
-  scene.background = new THREE.Color(0xa9d1ea)
+  scene.background = createSky()
 
   const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 100)
   camera.position.copy(HOME_POS)
@@ -103,14 +103,8 @@ export function createGallery(container) {
   sun.shadow.radius = 4
   scene.add(sun)
 
-  // 地面：暫時用單色圓盤（草地貼圖在 TODO 第 14 項），上面疊一層只顯示陰影的圓盤
-  const ground = new THREE.Mesh(
-    new THREE.CircleGeometry(2.8, 64),
-    new THREE.MeshBasicMaterial({ color: 0x93bf74 }),
-  )
-  ground.rotation.x = -Math.PI / 2
-  ground.position.y = -0.003
-  scene.add(ground)
+  // 地面：草地圓盤，上面疊一層只顯示陰影的圓盤
+  scene.add(createGrass())
 
   const shadowCatcher = new THREE.Mesh(
     new THREE.CircleGeometry(2.4, 64),
@@ -224,8 +218,10 @@ export function createGallery(container) {
       scene.traverse((o) => {
         o.geometry?.dispose()
         o.material?.gradientMap?.dispose()
+        o.material?.map?.dispose()
         o.material?.dispose()
       })
+      scene.background.dispose()
       renderer.dispose()
       renderer.domElement.remove()
     },
