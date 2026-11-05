@@ -278,8 +278,25 @@ def make_shoot(P):
     def ramp(f, a, b, c, d):                             # a→b 從 0 升到 1，c→d 降回 0
         return max(0.0, min(1.0, (f - a) / (b - a), (d - f) / (d - c)))
 
+    def hand_axes():                                     # 右手目前的手指方向、掌心方向
+        m = P.pb["hand.R"].matrix.to_3x3()
+        return m.col[1].copy(), -m.col[2].copy()
+
+    def flick(f, rel, end):
+        """出手後手腕自然往前壓：只繞手腕的屈曲軸（手指往掌心那側）轉，不繞前臂扭轉。
+        前 3 格快速壓腕約 150°（手指從朝後上方轉到朝前、約水平），之後慢慢轉到結束姿勢的角度。"""
+        d0, n0 = rel
+        a = d0.cross(n0).normalized()
+        de = end[0] - a * end[0].dot(a)
+        th_end = math.atan2(d0.cross(de).dot(a), d0.dot(de)) % (2 * math.pi)
+        th_snap = min(math.radians(150), th_end)
+        g = f - SHOOT_RELEASE_FRAME
+        th = th_snap * ease(min(1.0, g / 3)) + (th_end - th_snap) * ease(min(1.0, max(0.0, (g - 3) / 8)))
+        rot = Matrix.Rotation(th, 3, a)
+        return rot @ d0, rot @ n0
+
     up = V((0, 0, 1))
-    B_release = None
+    B_release = release_axes = end_axes = release_L = end_L = None
     for f in range(31):
         hd, ln, ht, bl, wR, wL, hR, lift, pR, pL = interp(f)
         w = min(1.0, f / 6.0) if f <= 10 else (1.0 if f <= 25 else 1.0 - (f - 25) / 5.0)
@@ -303,6 +320,18 @@ def make_shoot(P):
             P.palm("hand.L", dL, -sL, kL)
 
         do_pose(wristL)
+        if f == 0:
+            end_axes = hand_axes()                       # 最後一格回到和第 0 格相同的姿勢
+            end_L = P.pb["hand.L"].matrix.to_3x3().to_quaternion()
+        if f > SHOOT_RELEASE_FRAME:
+            d, n = flick(f, release_axes, end_axes)
+            P.palm("hand.R", d, n, 1 - min(1.0, max(0.0, (f - 27) / 3)))
+            # 左手放開球後，用剩下的影格慢慢轉回結束姿勢（只用 3 格轉會甩手）
+            e = ease((f - SHOOT_RELEASE_FRAME) / (30 - SHOOT_RELEASE_FRAME))
+            qL = end_L.copy()
+            if release_L.dot(qL) < 0:
+                qL.negate()
+            P.place("hand.L", P.pb["hand.L"].head.copy(), release_L.slerp(qL, e).to_matrix())
         if f <= SHOOT_RELEASE_FRAME:
             B = P.seat(B, V((0, 0, -1)).lerp(nR, kR))   # 球貼在右手掌上
             if kL > 0:
@@ -314,7 +343,8 @@ def make_shoot(P):
                         break
                     wristL = wristL + sL * ((CONTACT_GAP - g) / P.s)
                     do_pose(wristL)
-            B_release = B
+            B_release, release_axes = B, hand_axes()
+            release_L = P.pb["hand.L"].matrix.to_3x3().to_quaternion()
         else:
             B = B_release                                # 出手後球停在出手位置，縮小消失時才不會掃過手
         P.key(f + 1, B, 1.0 if f <= SHOOT_RELEASE_FRAME else 0.0)
