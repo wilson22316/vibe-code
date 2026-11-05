@@ -9,10 +9,35 @@ const MODEL_URL = `${import.meta.env.BASE_URL}models/athlete_game.glb`
 const HOME_POS = new THREE.Vector3(-2.2, 1.35, 3.0)
 const HOME_TGT = new THREE.Vector3(-0.1, 0.78, 0.1)
 
-// r128 舊版燈光強度 × π ≈ 新版物理單位下的同等亮度（hemi 0.6、sun 0.7）。
-// 最後要等角色換上卡通材質後再微調（TODO 第 12 項）。
+// r128 舊版燈光強度 × π ＝ 新版物理單位下的同等亮度（hemi 0.6、sun 0.7）。
 const HEMI_INTENSITY = 0.6 * Math.PI
 const SUN_INTENSITY = 0.7 * Math.PI
+
+// 燈光顏色：r128 沒有色彩管理，十六進位色直接當線性值用；新版會把它當 sRGB 轉成線性，
+// 色偏變重、地面色 #9A8FB0 也暗很多。照舊值當線性色設定，強度 × π，
+// 卡通材質的上色就和 r128 原型逐像素相同（第 12 項用同一顆球在兩個版本各畫一次比對過）。
+const linear = (hex) => new THREE.Color().setHex(hex, THREE.LinearSRGBColorSpace)
+const SKY_COLOR = linear(0xfff3e0)
+const GROUND_COLOR = linear(0x9a8fb0)
+const SUN_COLOR = linear(0xfff0d6)
+
+// 手繪動畫風：4 階色階貼圖（見 CLAUDE.md）
+function createToonGradient() {
+  const gradient = new THREE.DataTexture(new Uint8Array([120, 170, 215, 245]), 4, 1, THREE.RedFormat)
+  gradient.minFilter = THREE.NearestFilter
+  gradient.magFilter = THREE.NearestFilter
+  gradient.generateMipmaps = false
+  gradient.needsUpdate = true
+  return gradient
+}
+
+// 換成卡通材質；顏色沿用 glb 裡的材質色（已是 CLAUDE.md 的配色），名稱保留給之後換隊伍配色用
+function toToon(material, gradientMap) {
+  const toon = new THREE.MeshToonMaterial({ color: material.color, gradientMap })
+  toon.name = material.name
+  material.dispose()
+  return toon
+}
 
 const DEFAULT_CLIP = 'Idle'
 const ONCE_CLIPS = new Set(['Shoot'])
@@ -39,8 +64,8 @@ export function createGallery(container) {
   controls.maxPolarAngle = Math.PI * 0.495
   controls.update()
 
-  scene.add(new THREE.HemisphereLight(0xfff3e0, 0x9a8fb0, HEMI_INTENSITY))
-  const sun = new THREE.DirectionalLight(0xfff0d6, SUN_INTENSITY)
+  scene.add(new THREE.HemisphereLight(SKY_COLOR, GROUND_COLOR, HEMI_INTENSITY))
+  const sun = new THREE.DirectionalLight(SUN_COLOR, SUN_INTENSITY)
   sun.position.set(-2.5, 5, 3.5)
   sun.castShadow = true
   sun.shadow.mapSize.set(1024, 1024)
@@ -113,8 +138,10 @@ export function createGallery(container) {
   // 載入角色並播放 Idle；失敗時 ready 會 reject，由畫面顯示錯誤
   const ready = new GLTFLoader().loadAsync(MODEL_URL).then((gltf) => {
     const root = gltf.scene
+    const gradientMap = createToonGradient()
     root.traverse((o) => {
       if (!o.isMesh) return
+      o.material = toToon(o.material, gradientMap)
       o.castShadow = true
       // 骨架網格與球的包圍盒不會跟著動作更新，關掉視錐剔除以免動作中途消失
       o.frustumCulled = false
@@ -162,6 +189,7 @@ export function createGallery(container) {
       controls.dispose()
       scene.traverse((o) => {
         o.geometry?.dispose()
+        o.material?.gradientMap?.dispose()
         o.material?.dispose()
       })
       renderer.dispose()

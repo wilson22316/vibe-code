@@ -107,6 +107,7 @@ root（不變形）
 - `LuminanceFormat` → `RedFormat`；材質的 `skinning: true` 拿掉
 - `texture.encoding = sRGBEncoding` → `texture.colorSpace = SRGBColorSpace`；`renderer.outputEncoding` 拿掉（新版預設就是 sRGB 輸出）
 - 描邊用 `onBeforeCompile` 取代 `#include <begin_vertex>` 的寫法在新版仍可用
+- 燈光：強度 × π，顏色用 `new Color().setHex(hex, LinearSRGBColorSpace)`（r128 把十六進位色當線性值），上色才和原型逐像素相同
 - 以上已對 three.js r187（0.187.0）核對過；升級 three.js 時再核對一次
 
 ## 開發規則
