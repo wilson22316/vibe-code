@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createGallery } from './gallery/scene.js'
 
 const stage = ref(null)
@@ -7,12 +7,15 @@ const status = ref('模型載入中…')
 // 只放動作名稱字串；three.js 物件留在 scene.js
 const clips = ref([])
 const current = ref('')
+const speed = ref(1)
 let gallery = null
 
 function select(name) {
   gallery.play(name)
   current.value = name
 }
+
+watch(speed, (value) => gallery.setSpeed(value))
 
 onMounted(() => {
   gallery = createGallery(stage.value)
@@ -48,6 +51,17 @@ onBeforeUnmount(() => {
     >
       {{ name }}
     </button>
+    <label class="speed">
+      速度
+      <input
+        v-model.number="speed"
+        type="range"
+        min="0.1"
+        max="2"
+        step="0.1"
+      />
+      <span>{{ speed.toFixed(1) }}×</span>
+    </label>
   </nav>
 </template>
 
@@ -99,5 +113,21 @@ body,
 .clips button.active {
   background: #6aa79c;
   color: #fff;
+}
+
+.speed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.85);
+  color: #4a3326;
+  font: 14px sans-serif;
+}
+
+.speed span {
+  min-width: 3ch;
+  font-variant-numeric: tabular-nums;
 }
 </style>

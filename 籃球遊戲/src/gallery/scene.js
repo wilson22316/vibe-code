@@ -90,6 +90,11 @@ export function createGallery(container) {
     current.play()
   }
 
+  // 播放速度倍數，作用在整個 mixer，切換動作後仍維持
+  function setSpeed(speed) {
+    if (mixer) mixer.timeScale = speed
+  }
+
   // 載入角色並播放 Idle；失敗時 ready 會 reject，由畫面顯示錯誤
   const ready = new GLTFLoader().loadAsync(MODEL_URL).then((gltf) => {
     const root = gltf.scene
@@ -127,6 +132,7 @@ export function createGallery(container) {
     scene,
     ready,
     play,
+    setSpeed,
     dispose() {
       renderer.setAnimationLoop(null)
       resizeObserver.disconnect()
