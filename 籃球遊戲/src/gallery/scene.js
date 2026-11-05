@@ -70,6 +70,22 @@ function createOutline(mesh, material) {
   return line
 }
 
+// glb 的關鍵影格從 Blender 第 1 格（1/24 s）開始，最後一格又等於第一格。
+// 不平移的話 three.js 循環時第一格會停兩格、週期多一格，所以把時間平移到從 0 開始。
+// GLTFLoader 讓共用同一組時間的軌道共用同一個 times 陣列，shift 會直接改陣列，所以每個陣列只能平移一次。
+export function startClipsAtZero(clips) {
+  const shifted = new Set()
+  for (const clip of clips) {
+    const start = Math.min(...clip.tracks.map((t) => t.times[0]))
+    for (const track of clip.tracks) {
+      if (shifted.has(track.times)) continue
+      shifted.add(track.times)
+      track.shift(-start)
+    }
+    clip.resetDuration()
+  }
+}
+
 const DEFAULT_CLIP = 'Idle'
 const ONCE_CLIPS = new Set(['Shoot'])
 
@@ -183,6 +199,7 @@ export function createGallery(container) {
     scene.add(skeletonHelper)
 
     mixer = new THREE.AnimationMixer(root)
+    startClipsAtZero(gltf.animations)
     for (const clip of gltf.animations) {
       const action = mixer.clipAction(clip)
       // 單次動作播完停在最後一格（見 CLAUDE.md 動作規格表）
