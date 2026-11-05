@@ -24,6 +24,7 @@ PALM_A = 0.075           # 掌心中央離手腕的距離（縮放前）
 TWIST_SHARE = 0.5        # 手的扭轉有多少比例改由前臂承擔（見 Poser.distribute_twist）
 WRIST_MAX_BEND = 75      # 手腕最多彎幾度（見 Poser.limit_wrist）
 LEFT_RELAX = 5           # 投籃出手後，扶球的左手幾格內放鬆回直
+HINGE_ROLL_L = (120, 87)  # 投籃動作的左手臂：上臂、前臂 X 軸和手肘彎曲軸的角度（量自 Idle），見 Poser.two_bone
 # 三威脅的握法：(右手掌在球心的哪個方向, 右手指方向, 左手掌方向, 左手指方向)。
 # 左手指朝前（順著前臂），不朝上，手腕才不會折成 90 度。
 GRIP_TT = (Vector((-0.25, 0.55, 0.75)), Vector((0.1, -1.0, 0.2)), Vector((0.75, -0.55, 0.05)), Vector((-0.35, -1.0, 0.15)))
@@ -55,6 +56,8 @@ class Poser:
         self.blen = {b.name: b.length for b in rig.data.bones}
         self.unreachable = []
         self._prevq = {}
+        self._prevtw = {}                # 上一格手的扭轉角（distribute_twist 用來保持連續）
+        self.hinge_roll = {}             # 手臂扭轉跟著手肘彎曲軸的一側 → (上臂, 前臂) 角度，見 two_bone
         # 匯出前角色縮 scale 倍、球不縮，球心高度改成 scale * z + (1 - scale) * R_BALL。
         # 換回縮放前的座標，球等於往上移 lift、半徑變成 R_BALL / scale。
         self.s = scale
@@ -187,8 +190,23 @@ class Poser:
         p = pole - u * pole.dot(u)
         p.normalize()
         E = S + u * (a * cosA) + p * (a * sinA)
+        # aim 是「從靜止姿勢轉最少」，骨頭繞自己的扭轉和手肘實際的彎曲軸無關：手臂舉過頭時會漂掉一百多度，
+        # 手腕得扭很大才能讓掌心朝對的方向。hinge_roll 有設定的一側，每根骨頭對準後立刻繞自己的軸
+        # 轉到和彎曲軸保持固定角度（Idle 的關係）；上臂要在前臂對準前轉，否則會把前臂帶歪。
+        ref = self.hinge_roll.get(b1[-2:])
         self.aim(b1, S, E - S)
+        if ref is not None:
+            self._roll_to_hinge(b1, p.cross(u), ref[0])
         self.aim(b2, self.pb[b2].head.copy(), (S + u * L) - self.pb[b2].head)
+        if ref is not None:
+            self._roll_to_hinge(b2, p.cross(u), ref[1])
+
+    def _roll_to_hinge(self, name, h, deg):
+        """骨頭繞自己的軸轉，讓 X 軸到彎曲軸 h 的角度等於 deg。"""
+        m = self.pb[name].matrix.to_3x3()
+        ax, x = m.col[1].normalized(), m.col[0].normalized()
+        ang = math.atan2(x.cross(h).dot(ax), x.dot(h))
+        self.place(name, self.pb[name].head.copy(), Matrix.Rotation(ang - math.radians(deg), 3, ax) @ m)
 
     def ankle_rest(self, sfx):
         return self.rest["foot" + sfx].translation.copy()
@@ -225,6 +243,8 @@ class Poser:
         self.rig.animation_data.action = bpy.data.actions.new(name + "_Rig")
         self.ball.animation_data.action = bpy.data.actions.new(name + "_Ball")
         self._prevq.clear()
+        self._prevtw.clear()
+        self.hinge_roll = {}
 
     def wrist_local(self, name):
         """手相對前臂的轉動（四元數）。"""
@@ -246,10 +266,11 @@ class Poser:
             swing = y.rotation_difference(q @ y)
             tw = swing.inverted() @ q                    # 繞骨頭軸的扭轉
             angle = 2 * math.atan2(tw.y, tw.w)
-            if angle > math.pi:
-                angle -= 2 * math.pi
-            elif angle < -math.pi:
-                angle += 2 * math.pi
+            # 取最接近上一格的角度（差 360 度是同一個方向）：扭轉接近 180 度時才不會跳到另一邊，
+            # 否則前臂分到的扭轉會在一格內翻轉將近 180 度（看起來像手腕翻一下）
+            prev = self._prevtw.get(sfx, 0.0)
+            angle += 2 * math.pi * round((prev - angle) / (2 * math.pi))
+            self._prevtw[sfx] = angle
             if abs(angle) < 1e-4:
                 continue
             m_hand = self.pb[hand].matrix.to_3x3()
@@ -378,6 +399,7 @@ def make_idle(P):
 def make_shoot(P):
     """跳投：收球 → 屈膝 → 起跳舉球（手肘在球正下方、朝前）→ 最高點出手 → 壓腕 → 落地時手臂仍伸在前上方 → 收回。"""
     P.new_action("Shoot")
+    P.hinge_roll[".L"] = HINGE_ROLL_L
     Z = P.Z
     aR0 = P.ankle_rest(".R") + V((-0.06, 0.07, 0))      # 運球站姿
     aL0 = P.ankle_rest(".L") + V((0.06, -0.08, 0))
@@ -436,7 +458,7 @@ def make_shoot(P):
         return rot @ d0, rot @ n0
 
     up = V((0, 0, 1))
-    B_release = release_axes = end_axes = release_L = end_L = end_R = hold_R = rel_dL = None
+    B_release = release_axes = end_axes = release_L = palm_off = end_R = hold_R = rel_dL = None
     restR, restL = P.ankle_rest(".R"), P.ankle_rest(".L")
 
     def stance(f):                                       # 運球站姿 → 投籃站姿；空中換成 Idle 站姿，落地後腳不再移動
@@ -449,7 +471,7 @@ def make_shoot(P):
     end_dL, end_pL = wL + Z - P.pb["upper_arm.L"].head, pL
     rel_pL = K[[k[0] for k in K].index(SHOOT_RELEASE_FRAME)][10]
     end_axes = hand_axes()
-    end_R, end_L = P.wrist_local("hand.R"), P.wrist_local("hand.L")
+    end_R, palm_off = P.wrist_local("hand.R"), -P.pb["hand.L"].matrix.to_3x3().col[2] - natural_palm(P)   # 結束時剛好等於 Idle
     for f in range(SHOOT_END + 1):
         hd, ln, ht, bl, wR, wL, hR, lift, pR, pL = interp(f)
         aR, aL = stance(f)
@@ -482,8 +504,7 @@ def make_shoot(P):
                 hold_R = P.wrist_local("hand.R")
             else:                                        # 手臂收回時，手腕相對前臂慢慢回到結束姿勢
                 P.set_wrist_local("hand.R", slerp_short(hold_R, end_R, ease((g - 10) / (SHOOT_END - SHOOT_RELEASE_FRAME - 10))))
-            # 左手放開球後幾格內手腕就放鬆回直（太慢會一直維持扶球的方向，手臂放下時看起來像手掌外翻）
-            P.set_wrist_local("hand.L", slerp_short(release_L, end_L, ease(min(1.0, g / LEFT_RELAX))))
+            relax_left(P, g, release_L, palm_off)
         if f <= SHOOT_RELEASE_FRAME:
             B = P.seat(B, V((0, 0, -1)).lerp(nR, kR))   # 球貼在右手掌上
             if kL > 0:
@@ -785,16 +806,33 @@ def flick_axes(rel, end, g, snap_frames=3, hold_until=7, turn_frames=6, snap_deg
     return rot @ d0, rot @ n0
 
 
-def follow_through(P, g, total, hold, rel_axes, end_axes, end_R, rel_L, end_L, state, snap_deg=150):
+def natural_palm(P):
+    """左手放鬆時的掌心方向：垂直於手臂彎曲的平面、朝身體那側（手垂下時朝大腿，前臂水平時拇指朝上）。
+    IK 的骨頭扭轉是「從靜止姿勢轉最少」，和手臂的實際彎曲無關，不能拿來決定掌心。"""
+    S, E, W = (P.pb[n].head for n in ("upper_arm.L", "forearm.L", "hand.L"))
+    u = (W - S).normalized()
+    p = (E - S) - u * (E - S).dot(u)                     # 手肘偏離肩到手腕連線的方向
+    return p.normalized().cross(u)
+
+
+def relax_left(P, g, rel_L, palm_off):
+    """出手後第 g 格的左手：手指順著前臂、掌心朝 natural_palm（加上 palm_off 讓結束時剛好等於 Idle），
+    從出手時相對前臂的轉動在 LEFT_RELAX 格內轉過去（太慢會一直維持扶球的方向，手臂放下時像手掌外翻）。
+    不能只把手腕轉回和 Idle 相同的相對轉動：手臂放下途中前臂會被 IK 帶著轉，掌心會朝外。"""
+    P.palm("hand.L", P.pb["forearm.L"].matrix.col[1].to_3d(), natural_palm(P) + palm_off)
+    P.set_wrist_local("hand.L", slerp_short(rel_L, P.wrist_local("hand.L"), ease(min(1.0, g / LEFT_RELAX))))
+
+
+def follow_through(P, g, total, hold, rel_axes, end_axes, end_R, rel_L, palm_off, state, snap_deg=150):
     """出手後第 g 格（共 total 格）：右手先壓腕（世界方向）停留到 hold，之後手腕相對前臂轉回結束姿勢；
-    左手從出手時相對前臂的轉動，在 LEFT_RELAX 格內轉回結束姿勢（放鬆）。state 用來記住停留結束時的手腕轉動。"""
+    左手見 relax_left。state 用來記住停留結束時的手腕轉動。"""
     if g <= hold:
         d, n = flick_axes(rel_axes, end_axes, g, hold_until=total, snap_deg=snap_deg)
         P.palm("hand.R", d, n)
         state["hold_R"] = P.wrist_local("hand.R")
     else:
         P.set_wrist_local("hand.R", slerp_short(state["hold_R"], end_R, ease((g - hold) / (total - hold))))
-    P.set_wrist_local("hand.L", slerp_short(rel_L, end_L, ease(min(1.0, g / LEFT_RELAX))))
+    relax_left(P, g, rel_L, palm_off)
 
 
 DROP_MID = V((0.40, -0.50, -0.77)).normalized()   # 左手放下途中，手腕相對肩膀的方向：身體前側偏外、斜下方
@@ -826,6 +864,7 @@ def make_set_shot(P):
     """定點投籃（單次 30 格）：從 TripleThreat 第 0 格開始，屈膝收球 → 球舉到額頭前上方 → 伸膝伸手，
     第 14 格出手（雙腳不離地）→ 壓腕停留 → 雙手放下、站直。出手後球縮放為 0。"""
     P.new_action("SetShot")
+    P.hinge_roll[".L"] = HINGE_ROLL_L
     Z = P.Z
     aR = P.ankle_rest(".R") + V((-0.10, 0.07, 0))       # 三威脅站姿，整段腳不動
     aL = P.ankle_rest(".L") + V((0.10, -0.07, 0))
@@ -863,7 +902,7 @@ def make_set_shot(P):
     pose_body(SET_END, wRK[-1][1] + Z, wLK[-1][1] + Z, end_pL)   # 先擺出結束姿勢，記下雙手方向
     end_dL = wLK[-1][1] + Z - P.pb["upper_arm.L"].head
     end_axes = hand_axes("hand.R")
-    end_R, end_L = P.wrist_local("hand.R"), P.wrist_local("hand.L")
+    end_R, palm_off = P.wrist_local("hand.R"), -P.pb["hand.L"].matrix.to_3x3().col[2] - natural_palm(P)   # 結束時剛好等於 Idle
     state = {}
     B_rel = rel_R = rel_L = rel_wR = rel_wL = rel_dL = None
     for f in range(SET_END + 1):
@@ -886,7 +925,7 @@ def make_set_shot(P):
         del P.unreachable[n:]
         wL, pL = drop_left(P, f, SET_RELEASE, SET_END, rel_dL, end_dL, poleLK[-1][1], end_pL)
         pose_body(f, wR, wL, pL)
-        follow_through(P, gf, SET_END - SET_RELEASE, 8, rel_R, end_axes, end_R, rel_L, end_L, state)
+        follow_through(P, gf, SET_END - SET_RELEASE, 8, rel_R, end_axes, end_R, rel_L, palm_off, state)
         P.key(f + 1, B_rel + V((0, -4.5, 5.4)) * (gf / FPS), 0.0)   # 球沿出手方向飛走（隱藏），縮小時不會掃過手
 
 
@@ -900,6 +939,7 @@ def make_layup(P):
     原地動作：起跳前以 Sprint 速度推動，空中 LAY_AIR_SPEED，落地後 4 格線性降到 0。"""
     L = LAY
     P.new_action("Layup")
+    P.hinge_roll[".L"] = HINGE_ROLL_L
     Z = P.Z
     v0, va = SPRINT_SPEED, LAY_AIR_SPEED
     brake = va * (L["BRAKE"] - L["LAND"]) / FPS / 2
@@ -986,7 +1026,7 @@ def make_layup(P):
     pose_body(L["END"], wRK[-1][1] + Z, wLK[-1][1] + Z, end_pL)  # 先擺出結束姿勢，記下雙手方向
     end_dL = wLK[-1][1] + Z - P.pb["upper_arm.L"].head
     end_axes = hand_axes("hand.R")
-    end_R, end_L = P.wrist_local("hand.R"), P.wrist_local("hand.L")
+    end_R, palm_off = P.wrist_local("hand.R"), -P.pb["hand.L"].matrix.to_3x3().col[2] - natural_palm(P)   # 結束時剛好等於 Idle
     state = {}
     wL0 = V((0.26, -0.20, 0.95)) + Z
     rel = None
@@ -1019,7 +1059,7 @@ def make_layup(P):
         del P.unreachable[n:]
         wL, pL = drop_left(P, f, L["RELEASE"], L["END"], rel_dL, end_dL, poleLK[-1][1], end_pL)
         pose_body(f, wR, wL, pL)
-        follow_through(P, gf, L["END"] - L["RELEASE"], 4, rel_R, end_axes, end_R, rel_L, end_L, state, snap_deg=80)
+        follow_through(P, gf, L["END"] - L["RELEASE"], 4, rel_R, end_axes, end_R, rel_L, palm_off, state, snap_deg=80)
         P.key(f + 1, B_r + V((0, -1.5, 4.0)) * (gf / FPS), 0.0)   # 球往籃框方向飛走（隱藏）
     MOVE_SPEEDS["Layup"] = v0
 
