@@ -501,7 +501,27 @@ def make_dribble_walk(P):
         P.key(f + 1, V((BX, BY, zb)) + Z)
 
 
-CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk")
+def make_run(P, name, N, S, Y, lift, toe, hips_z, bob, lean, head, arm_y, arm_z):
+    """無球跑步（原地循環）：N 格跑兩步；S 著地比例；Y 腳前後最遠距離；bob 身體上下起伏；
+    arm_y、arm_z 手臂前後擺動幅度與擺到前方時抬高多少。球縮放為 0。"""
+    P.new_action(name)
+    Z = P.Z
+    foot_cycle, speed = gait(N, S, -Y, Y, lift=lift, toe=toe)
+    MOVE_SPEEDS[name] = speed
+    for f in range(N + 1):
+        t = f / N
+        aR, rR = foot_cycle(t % 1.0, P.ankle_rest(".R") + V((0.02, 0, 0)))
+        aL, rL = foot_cycle((t + 0.5) % 1.0, P.ankle_rest(".L") + V((-0.02, 0, 0)))
+        c = math.cos(2 * math.pi * t)                     # 右腳在前（t=0）時右手在後
+        mid = math.cos(4 * math.pi * (t - S / 2))         # 著地中段身體最低
+        P.pose(f"{name}{f}", V((0, -0.03, hips_z - bob * mid)), lean, head,
+               V((-0.24, -0.06 + arm_y * c, 1.00 + arm_z * min(0.0, c))) + Z,
+               V((0.24, -0.06 - arm_y * c, 1.00 + arm_z * min(0.0, -c))) + Z,
+               aR, aL, poleR=V((-0.3, 1.0, -0.4)), poleL=V((0.3, 1.0, -0.4)), footR=rR, footL=rL, twist=0.05 * c)
+        P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
+
+
+CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run")
 
 
 def build_all(rig, ball, off, scale):
@@ -514,6 +534,10 @@ def build_all(rig, ball, off, scale):
     make_sprint(P)
     make_triple_threat(P)
     make_dribble_walk(P)
+    make_run(P, "Jog", N=16, S=0.40, Y=0.28, lift=0.12, toe=0.30, hips_z=-0.10, bob=0.02,
+             lean=(0.08, 0.04, 0.02), head=-0.07, arm_y=0.16, arm_z=-0.06)
+    make_run(P, "Run", N=12, S=0.34, Y=0.30, lift=0.24, toe=0.50, hips_z=-0.12, bob=0.025,
+             lean=(0.16, 0.07, 0.03), head=-0.15, arm_y=0.24, arm_z=-0.12)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):

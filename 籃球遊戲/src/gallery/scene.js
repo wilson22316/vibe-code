@@ -88,7 +88,7 @@ export function startClipsAtZero(clips) {
 
 const BALL_NODE = 'Ball'
 // 原地移動的動作，遊戲以這些速度（m/s）推動角色腳才不會打滑（見 CLAUDE.md；建置時印出的 move_speeds 為準）
-const MOVE_SPEEDS = { Sprint: 2.843, DribbleWalk: 0.979 }
+const MOVE_SPEEDS = { Sprint: 2.843, DribbleWalk: 0.979, Jog: 1.99, Run: 3.345 }
 // 推動時在 z = -2～2 m 之間跑，跑出去就從另一端再進來
 const RUN_HALF = 2
 const DEFAULT_CLIP = 'Idle'
