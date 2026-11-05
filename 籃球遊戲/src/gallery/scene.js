@@ -96,13 +96,15 @@ const MOVE_SPEEDS = {
   Run: 3.345,
   // 急停：第 8 格雙腳落地前維持 Sprint 速度，第 8～12 格線性降到 0（athlete_anims.py 的 STOP_LAND、STOP_BRAKE）
   StopJump: (t) => 2.843 * Math.min(1, Math.max(0, (12 / 24 - t) / (4 / 24))),
+  // 上籃：第 11 格起跳前 Sprint 速度，空中 1.895，第 22 格落地後 4 格線性降到 0（athlete_anims.py 的 LAY）
+  Layup: (t) => (t < 11 / 24 ? 2.843 : 1.895 * Math.min(1, Math.max(0, (26 / 24 - t) / (4 / 24)))),
 }
 // 推動時在 z = -2～2 m 之間跑，跑出去就從另一端再進來
 const RUN_HALF = 2
 const DEFAULT_CLIP = 'Idle'
 // 淡入淡出秒數，沿用 reference 原型的 0.35 s
 const FADE_SECONDS = 0.35
-const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot'])
+const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup'])
 
 export function createGallery(container) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })

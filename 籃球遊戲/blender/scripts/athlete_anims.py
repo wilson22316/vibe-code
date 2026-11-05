@@ -661,15 +661,15 @@ def make_stop_jump(P):
 SET_RELEASE, SET_END = 14, 30
 
 
-def flick_axes(rel, end, g, snap_frames=3, hold_until=7, turn_frames=6):
+def flick_axes(rel, end, g, snap_frames=3, hold_until=7, turn_frames=6, snap_deg=150):
     """出手後的壓腕：只繞手腕屈曲軸（手指往掌心那側）轉，不繞前臂扭轉。
     rel、end：出手時與結束時的（手指方向, 掌心方向）；g：出手後第幾格。
-    前 snap_frames 格快速壓腕約 150°，維持到 hold_until，之後 turn_frames 格轉到結束姿勢的角度。"""
+    前 snap_frames 格快速壓腕約 snap_deg 度，維持到 hold_until，之後 turn_frames 格轉到結束姿勢的角度。"""
     d0, n0 = rel
     a = d0.cross(n0).normalized()
     de = end[0] - a * end[0].dot(a)
     th_end = math.atan2(d0.cross(de).dot(a), d0.dot(de)) % (2 * math.pi)
-    th_snap = min(math.radians(150), th_end)
+    th_snap = min(math.radians(snap_deg), th_end)
     th = th_snap * ease(min(1.0, g / snap_frames)) + \
         (th_end - th_snap) * ease(min(1.0, max(0.0, (g - hold_until) / turn_frames)))
     rot = Matrix.Rotation(th, 3, a)
@@ -735,7 +735,149 @@ def make_set_shot(P):
         P.key(f + 1, B_rel + V((0, -4.5, 5.4)) * (gf / FPS), 0.0)   # 球沿出手方向飛走（隱藏），縮小時不會掃過手
 
 
-CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot")
+LAY = dict(PUSH_R=5, PLANT_L=6, TAKEOFF=11, RELEASE=17, LAND=22, BRAKE=26, END=30)
+LAY_AIR_SPEED = 2.0      # 縮放前；空中的水平速度
+
+
+def make_layup(P):
+    """上籃（單次 30 格）：從 Sprint 第 0 格接起。右腳那步雙手收球到右腰，左腳踩下、第 11 格左腳起跳，
+    右膝上抬，右手托球往上，第 17 格（最高點）出手，第 22 格雙腳落地煞停，第 30 格站直。
+    原地動作：起跳前以 Sprint 速度推動，空中 LAY_AIR_SPEED，落地後 4 格線性降到 0。"""
+    L = LAY
+    P.new_action("Layup")
+    Z = P.Z
+    v0, va = SPRINT_SPEED, LAY_AIR_SPEED
+    brake = va * (L["BRAKE"] - L["LAND"]) / FPS / 2
+    cyc, _ = gait(12, 0.40, -0.30, 0.30, lift=0.20, toe=0.45)
+    baseR = P.ankle_rest(".R") + V((0.02, 0, 0))
+    baseL = P.ankle_rest(".L") + V((-0.02, 0, 0))
+    aR0, _ = cyc(0.0, baseR)
+    aL0, rL0 = cyc(0.5, baseL)
+    endR = P.ankle_rest(".R") + V((-0.03, 0, 0))
+    endL = P.ankle_rest(".L") + V((0.03, 0, 0))
+    landR, landL = endR - V((0, brake, 0)), endL - V((0, brake, 0))
+    aR_push = aR0 + V((0, v0 * L["PUSH_R"] / FPS, 0))
+    aL_plant = baseL + V((0, -0.30, 0))
+    aL_take = aL_plant + V((0, v0 * (L["TAKEOFF"] - L["PLANT_L"]) / FPS, 0))
+
+    def jump(f):                                         # 起跳後身體與雙腳一起上升的高度（拋物線）
+        if not L["TAKEOFF"] <= f <= L["LAND"]:
+            return 0.0
+        s = (f - L["TAKEOFF"]) / (L["LAND"] - L["TAKEOFF"])
+        return 4 * 0.26 * s * (1 - s)
+
+    def air(a0, a1, f0, f1, d0, d1, f, bump):           # 空中的腳：蹬地、落地那一格都對齊身體速度
+        n = f1 - f0
+        s = (f - f0) / n
+        m0, m1 = hermite_fit(a0.y, a1.y, n, d0, d1)
+        p = a0.lerp(a1, ease(s))
+        return V((p.x, hermite(a0.y, a1.y, m0, m1, s), p.z + bump * math.sin(math.pi * s)))
+
+    def feet(f):
+        J = V((0, 0, jump(f)))
+        if f >= L["LAND"]:
+            u = min(1.0, (f - L["LAND"]) / (L["BRAKE"] - L["LAND"]))
+            k = V((0, brake * (1 - (1 - u) ** 2), 0))
+            return landR + k, landL + k, 0.0, 0.0
+        if f <= L["PUSH_R"]:                             # 右腳：著地往後 → 離地抬膝 → 落地
+            aR, rR = aR0 + V((0, v0 * f / FPS, 0)), 0.0
+        else:
+            aR = air(aR_push, landR, L["PUSH_R"], L["LAND"], v0 / FPS, va / FPS, f, 0.30) + J
+            rR = 0.40 * math.sin(math.pi * (f - L["PUSH_R"]) / (L["LAND"] - L["PUSH_R"]))
+        if f <= L["PLANT_L"]:                            # 左腳：擺到前面踩下 → 著地往後 → 起跳 → 落地
+            aL = air(aL0, aL_plant, 0, L["PLANT_L"], None, v0 / FPS, f, 0.03)
+            rL = rL0 * (1 - ease(f / L["PLANT_L"]))
+        elif f <= L["TAKEOFF"]:
+            aL, rL = aL_plant + V((0, v0 * (f - L["PLANT_L"]) / FPS, 0)), 0.0
+        else:
+            aL = air(aL_take, landL, L["TAKEOFF"], L["LAND"], v0 / FPS, va / FPS, f, 0.10) + J
+            rL = 0.35 * math.sin(math.pi * (f - L["TAKEOFF"]) / (L["LAND"] - L["TAKEOFF"]))
+        return aR, aL, rR, rL
+
+    hipsK = [(0, V((0, -0.04, -0.10))), (L["PUSH_R"], V((0, -0.03, -0.15))), (9, V((0, -0.02, -0.21))),
+             (L["TAKEOFF"], V((0, -0.03, -0.12))), (L["RELEASE"], V((0, -0.02, -0.02))), (L["LAND"], V((0, 0.0, -0.20))),
+             (L["BRAKE"], V((0, 0.01, -0.15))), (L["END"], V((0, 0.0, -0.012)))]
+    leanK = [(0, V((0.16, 0.08, 0.03))), (L["PUSH_R"], V((0.14, 0.08, 0.04))), (L["TAKEOFF"], V((0.10, 0.05, 0.02))),
+             (L["RELEASE"], V((-0.02, 0.0, 0.0))), (L["LAND"], V((0.14, 0.06, 0.03))), (L["END"], V((0.0, 0.0, 0.0)))]
+    headK = [(0, -0.12), (L["TAKEOFF"], -0.10), (L["RELEASE"], -0.20), (L["LAND"], -0.05), (L["END"], 0.02)]
+    twistK = [(0, 0.06), (L["PUSH_R"], 0.0), (L["END"], 0.0)]
+    # 右手肘：運球朝後 → 收球朝外下 → 托球朝前下 → 落地後放鬆朝後（中途不經過 0，免得翻轉）
+    poleRK = [(0, V((-0.35, 1.0, -0.25))), (6, V((-0.6, 0.8, -0.3))), (11, V((-0.9, 0.0, -0.5))),
+              (L["RELEASE"], V((-0.12, -1.0, -0.1))), (L["LAND"], V((-0.8, 0.2, -0.6))), (L["END"], V((-0.35, 1.0, -0.25)))]
+
+    def pose_body(f, wR, wL):
+        aR, aL, rR, rL = feet(f)
+        P.pose(f"Y{f}", smooth_pts(f, hipsK) + V((0, 0, jump(f))), tuple(smooth_pts(f, leanK)), smooth_pts(f, headK),
+               wR, wL, aR, aL, handR_dir=V((0, -1.0, -0.3)), poleR=smooth_pts(f, poleRK),
+               poleL=V((0.3, 1.0, -0.3)).lerp(V((0.6, 0.4, -0.6)), ease(min(1.0, f / 8))),
+               footR=rR, footL=rL, twist=smooth_pts(f, twistK))
+
+    grip_tt = (V((-0.25, 0.55, 0.75)), V((0.1, -1.0, 0.2)), V((0.75, -0.55, 0.05)), V((0, -0.2, 1.0)))
+    grip_lay = (V((0.05, 0.40, -0.92)), V((0, 0.92, 0.40)), V((1.0, -0.1, 0.1)), V((0, -0.1, 1.0)))
+    # 球心（不含跳躍高度）：第 3 格起雙手持球，第 14 格起只剩右手托球；第 3 格的位置在第 2 格算出後補上
+    ballK = [(3, None), (L["PUSH_R"], V((-0.18, -0.26, 1.00))), (9, V((-0.16, -0.27, 1.08))),
+             (L["TAKEOFF"], V((-0.14, -0.28, 1.25))), (13, V((-0.13, -0.31, 1.55))),
+             (15, V((-0.13, -0.34, 1.84))), (L["RELEASE"], V((-0.12, -0.37, 1.97)))]
+    wRK = [(L["LAND"], V((-0.22, -0.30, 1.30))), (L["END"], V((-0.215, -0.03, 0.85)))]
+    wLK = [(16, V((0.30, -0.28, 1.50))), (L["LAND"], V((0.26, -0.10, 1.05))), (L["END"], V((0.215, -0.03, 0.85)))]
+
+    def hand_axes(name):
+        m = P.pb[name].matrix.to_3x3()
+        return m.col[1].copy(), -m.col[2].copy()
+
+    pose_body(L["END"], wRK[-1][1] + Z, wLK[-1][1] + Z)  # 先擺出結束姿勢，記下雙手方向
+    end_R = hand_axes("hand.R")
+    end_L = P.pb["hand.L"].matrix.to_3x3().to_quaternion()
+    wL0 = V((0.26, -0.20, 0.95)) + Z
+    rel = None
+    for f in range(L["END"] + 1):
+        J = V((0, 0, jump(f)))
+        if f <= 2:                                        # 右手最後一次壓著球，左手過來準備接
+            sL = grip_tt[2].normalized()
+            wL = wL0.lerp(V((-0.28, -0.46, 0.83)) + Z + sL * 0.25, ease(f / 3))
+            pose_body(f, V((-0.28, -0.40, 0.97 - 0.02 * f)) + Z, wL)
+            B = P.seat(V((-0.28, -0.46, 0.8)) + Z, V((0, 0, -1)))
+            ballK[0] = (3, (B - Z).lerp(V((-0.18, -0.30, 0.98)), 0.6))   # 收球：球往身體中線拉，左手才搆得到
+            P.key(f + 1, B)
+            continue
+        if f <= L["RELEASE"]:
+            B = smooth_pts(f, ballK) + Z + J
+            w = ease(min(1.0, (f - 3) / 8))
+            g = [a.lerp(b, w) for a, b in zip(grip_tt, grip_lay)]
+            if f <= 13:                                   # 雙手持球
+                P.hold_two(B, g[0], g[1], g[2], g[3], lambda wR, wL: pose_body(f, wR, wL))
+            else:                                         # 右手托球往上，左手離開球護在旁邊
+                sR, sL = g[0].normalized(), g[2].normalized()
+                dR = (g[1] - sR * g[1].dot(sR)).normalized()
+                dL = (g[3] - sL * g[3].dot(sL)).normalized()
+                reach = R_BALL / P.s + PALM_T
+                kL = ease(min(1.0, (f - 13) / 3))
+                wL = (B + sL * (reach + 0.05 * kL) - dL * PALM_A).lerp(wLK[0][1] + Z + J, kL)
+                pose_body(f, B + sR * reach - dR * PALM_A, wL)
+                P.palm("hand.R", dR, -sR)
+                P.palm("hand.L", dL, -sL, 1 - kL)
+                B = P.seat(B, -sR)
+            rel = (B, hand_axes("hand.R"), P.pb["hand.L"].matrix.to_3x3().to_quaternion(),
+                   P.pb["hand.R"].head.copy(), P.pb["hand.L"].head.copy())
+            P.key(f + 1, B)
+            continue
+        B_r, rel_R, rel_L, rel_wR, rel_wL = rel          # 出手後
+        gf = f - L["RELEASE"]
+        wR = smooth_pts(f, [(L["RELEASE"], rel_wR)] + [(k, v + Z) for k, v in wRK])
+        wL = smooth_pts(f, [(L["RELEASE"], rel_wL)] + [(k, v + Z + V((0, 0, jump(k)))) for k, v in wLK])
+        pose_body(f, wR, wL)
+        d, n = flick_axes(rel_R, end_R, gf, hold_until=4, turn_frames=8, snap_deg=80)
+        P.palm("hand.R", d, n, 1 - min(1.0, max(0.0, (f - (L["END"] - 3)) / 3)))
+        qL = end_L.copy()
+        if rel_L.dot(qL) < 0:
+            qL.negate()
+        P.place("hand.L", P.pb["hand.L"].head.copy(), rel_L.slerp(qL, ease(gf / (L["END"] - L["RELEASE"]))).to_matrix())
+        P.key(f + 1, B_r + V((0, -1.5, 4.0)) * (gf / FPS), 0.0)   # 球往籃框方向飛走（隱藏）
+    MOVE_SPEEDS["Layup"] = v0
+
+
+CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot",
+         "Layup")
 
 
 def build_all(rig, ball, off, scale):
@@ -754,6 +896,7 @@ def build_all(rig, ball, off, scale):
              lean=(0.16, 0.07, 0.03), head=-0.15, arm_y=0.24, arm_z=-0.12)
     make_stop_jump(P)
     make_set_shot(P)
+    make_layup(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
