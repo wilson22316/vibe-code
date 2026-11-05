@@ -17,7 +17,7 @@ from mathutils import Matrix, Vector
 FPS = 24
 R_BALL = 0.12
 SHOOT_RELEASE_FRAME = 18
-SPRINT_SPEED = None   # 由 make_sprint() 依步幅計算後填入（目前 3.0 m/s）
+SPRINT_SPEED = None   # 由 make_sprint() 依步幅計算後填入（縮放前 3.0 m/s；匯出縮放後約 2.84 m/s，見 build_athlete.py）
 
 V = Vector
 
@@ -173,7 +173,8 @@ def make_idle(P):
         t = f / 48.0
         sw = math.sin(2 * math.pi * t)
         P.pose(f"I{f}", V((0.006 * sw, 0, -0.012 - 0.006 * sw)), (0, 0, 0), 0.02,
-               V((-0.24, 0.03, 0.93 + 0.006 * sw)) + Z, V((0.24, 0.03, 0.93 + 0.006 * sw)) + Z,
+               # 手自然垂在大腿外側、稍微在大腿中線前面（參考一般人放鬆站姿）
+               V((-0.215, -0.03, 0.85 + 0.006 * sw)) + Z, V((0.215, -0.03, 0.85 + 0.006 * sw)) + Z,
                P.ankle_rest(".R"), P.ankle_rest(".L"), breath=-0.02 * sw)
         P.key(f + 1, V((-0.34, -0.22, R_BALL)) + Z)
 

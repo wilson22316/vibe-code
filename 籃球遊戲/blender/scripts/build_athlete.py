@@ -42,11 +42,30 @@ def export_glb(path, rig, body, ball):
         export_optimize_animation_keep_anim_object=True)                 # 靜止的球也保留軌道
 
 
+def scale_to_height(rig, body, ball):
+    """整個角色（骨架與身體）等比例縮到 TARGET_HEIGHT；動作只記錄骨頭旋轉與臀部位移，會跟著縮。
+    籃球大小不變，只縮放球的移動路徑；高度另外修正，讓球著地時仍剛好碰到地面。回傳縮放倍數。"""
+    s = athlete_model.TARGET_HEIGHT / max(v.co.z for v in body.data.vertices)
+    rig.scale = (s, s, s)
+    r = athlete_model.BALL_R
+    for act in {st.action for tr in ball.animation_data.nla_tracks for st in tr.strips}:
+        for fc in getattr(act, "fcurves", None) or [fc for layer in act.layers for strip in layer.strips
+                                                      for bag in strip.channelbags for fc in bag.fcurves]:
+            if fc.data_path != "location":
+                continue
+            for kp in fc.keyframe_points:
+                f = (lambda v: s * v + (1 - s) * r) if fc.array_index == 2 else (lambda v: s * v)
+                kp.co[1], kp.handle_left[1], kp.handle_right[1] = f(kp.co[1]), f(kp.handle_left[1]), f(kp.handle_right[1])
+    return s
+
+
 def main():
     args = parse_args()
     bpy.ops.wm.read_factory_settings(use_empty=True)
     body, rig, ball, off = athlete_model.build_model()
     info = athlete_anims.build_all(rig, ball, off)
+    s = scale_to_height(rig, body, ball)
+    info.update({"scale": round(s, 4), "sprint_speed": round(info["sprint_speed"] * s, 3)})
     export_glb(args.out, rig, body, ball)
     if args.blend:
         os.makedirs(os.path.dirname(os.path.abspath(args.blend)), exist_ok=True)
