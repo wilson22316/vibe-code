@@ -1749,8 +1749,70 @@ def make_celebrate(P):
         P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
 
 
+FRU = dict(UP=8, HOLD=22, AKIMBO=30, LOOK=40, END=48)
+
+
+def make_frustrated(P):
+    """沮喪（單次 48 格）：從 Idle 第 0 格接起，第 8 格雙手抱在頭頂（手肘往外張）、仰頭後仰（不敢相信），
+    維持到第 22 格，第 30 格雙手放到腰上（叉腰）、身體前彎、低頭，維持到第 40 格，第 48 格回到 Idle。原地，無球。"""
+    F = FRU
+    P.new_action("Frustrated")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    aR, aL = P.ankle_rest(".R"), P.ankle_rest(".L")
+    idleR = V((-0.215, -0.03, 0.85))
+    headR = V((-0.15, 0.05, 1.77))                       # 手放在頭頂偏後
+    hipR = V((-0.20, 0.0, 1.03))                         # 叉腰
+    # 分段的平滑曲線：經過中間點不停頓（從身體前方舉起、從兩側放下），停住的段落不會飄
+    wRS = [[(0, idleR), (4, V((-0.22, -0.30, 1.35))), (F["UP"], headR)],
+           [(F["UP"], headR), (F["HOLD"], headR + V((0, 0.01, -0.01)))],
+           [(F["HOLD"], headR + V((0, 0.01, -0.01))), (26, V((-0.34, -0.12, 1.30))), (F["AKIMBO"], hipR)],
+           [(F["AKIMBO"], hipR), (F["LOOK"], hipR + V((0, 0.01, 0.01)))],
+           [(F["LOOK"], hipR + V((0, 0.01, 0.01))), (F["END"], idleR)]]
+    poleRS = [[(0, V((-0.35, 1.0, -0.25))), (4, V((-0.6, 0.2, -0.8))), (F["UP"], V((-1.0, -0.1, 0.1)))],
+              [(F["UP"], V((-1.0, -0.1, 0.1))), (F["HOLD"], V((-1.0, -0.1, 0.1)))],
+              [(F["HOLD"], V((-1.0, -0.1, 0.1))), (26, V((-0.8, 0.3, -0.5))), (F["AKIMBO"], V((-1.0, 0.6, 0.0)))],
+              [(F["AKIMBO"], V((-1.0, 0.6, 0.0))), (F["LOOK"], V((-1.0, 0.6, 0.0)))],
+              [(F["LOOK"], V((-1.0, 0.6, 0.0))), (F["END"], V((-0.35, 1.0, -0.25)))]]
+
+    def seg(f, segs):
+        return spline_pts(f, next(sg for sg in segs if sg[0][0] <= f <= sg[-1][0]))
+    hipsK = [(0, V((0, 0, -0.012))), (F["UP"], V((0, 0.03, -0.02))), (F["HOLD"], V((0, 0.03, -0.03))),
+             (F["AKIMBO"], V((0, 0.02, -0.04))), (F["LOOK"], V((0, 0.02, -0.05))), (F["END"], V((0, 0, -0.012)))]
+    leanK = [(0, V((0, 0, 0))), (F["UP"], V((-0.05, -0.06, -0.04))), (F["HOLD"], V((-0.04, -0.05, -0.03))),
+             (F["AKIMBO"], V((0.10, 0.12, 0.08))), (F["LOOK"], V((0.12, 0.13, 0.09))), (F["END"], V((0, 0, 0)))]
+    headK = [(0, 0.02), (F["UP"], -0.32), (F["HOLD"], -0.26), (F["AKIMBO"], 0.30), (F["LOOK"], 0.34), (F["END"], 0.02)]
+    # 手的方向（手指方向, 掌心朝向）：抱頭時手指朝內上方、掌心朝下貼頭；叉腰時手指朝前下方、掌心朝身體
+    on_head = (V((0.9, 0.1, 0.35)), V((0.35, 0.0, -1.0)))
+    on_hip = (V((0.0, -0.5, -1.0)), V((1.0, 0.0, 0.0)))
+
+    for f in range(F["END"] + 1):
+        t = f / F["END"]
+        wR = seg(f, wRS) + Z
+        pR = seg(f, poleRS)
+        P.pose(f"FR{f}", smooth_pts(f, hipsK), tuple(smooth_pts(f, leanK)), smooth_pts(f, headK),
+               wR, mirror_x(wR - Z) + Z, aR, aL, poleR=pR, poleL=mirror_x(pR), breath=0.03 * math.sin(4 * math.pi * t))
+        k_head = ease(min(1.0, f / F["UP"], max(0.0, (F["AKIMBO"] - f) / (F["AKIMBO"] - F["HOLD"]))))
+        k_hip = ease(min(1.0, max(0.0, (f - F["HOLD"]) / (F["AKIMBO"] - F["HOLD"])), max(0.0, (F["END"] - f) / (F["END"] - F["LOOK"]))))
+        for sfx, side in ((".R", 1), (".L", -1)):
+            # 各個目標方向先換算成「手相對前臂的轉動」再內插，轉換途中才不會繞遠路扭一大圈
+            h = "hand" + sfx
+            q = P.wrist_local(h)                         # Idle 的手（沒有另外轉）
+            P.palm(h, P.pb["forearm" + sfx].matrix.col[1].to_3d(), natural_palm(P, sfx))
+            q_nat = P.wrist_local(h)
+            P.palm(h, V((on_head[0].x * side, on_head[0].y, on_head[0].z)), V((on_head[1].x * side, on_head[1].y, on_head[1].z)))
+            q_head = P.wrist_local(h)
+            P.palm(h, V((on_hip[0].x * side, on_hip[0].y, on_hip[0].z)), V((on_hip[1].x * side, on_hip[1].y, on_hip[1].z)))
+            q_hip = P.wrist_local(h)
+            q = slerp_short(q, q_nat, min(1.0, k_head + k_hip))
+            q = slerp_short(slerp_short(q, q_head, k_head), q_hip, k_hip)
+            P.set_wrist_local(h, q)
+            P.limit_wrist(h)
+        P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
+
+
 CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot",
-         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound", "Crossover", "BetweenLegs", "Dunk", "Celebrate")
+         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound", "Crossover", "BetweenLegs", "Dunk", "Celebrate", "Frustrated")
 
 
 def build_all(rig, ball, off, scale):
@@ -1779,6 +1841,7 @@ def build_all(rig, ball, off, scale):
     make_between_legs(P)
     make_dunk(P)
     make_celebrate(P)
+    make_frustrated(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
