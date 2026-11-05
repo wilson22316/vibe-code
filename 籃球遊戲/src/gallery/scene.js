@@ -87,8 +87,8 @@ export function startClipsAtZero(clips) {
 }
 
 const BALL_NODE = 'Ball'
-// Sprint 是原地動作，遊戲以這個速度推動角色腳才不會打滑（見 CLAUDE.md；建置時印出的 sprint_speed 為準）
-const SPRINT_SPEED = 2.84
+// 原地移動的動作，遊戲以這些速度（m/s）推動角色腳才不會打滑（見 CLAUDE.md；建置時印出的 move_speeds 為準）
+const MOVE_SPEEDS = { Sprint: 2.843, DribbleWalk: 0.979 }
 // 推動時在 z = -2～2 m 之間跑，跑出去就從另一端再進來
 const RUN_HALF = 2
 const DEFAULT_CLIP = 'Idle'
@@ -165,18 +165,19 @@ export function createGallery(container) {
   let ball = null
   const ballScale = new Map()
 
-  // 只在播 Sprint 時推動角色往前（+Z）；其他時候回到原點
+  // 只在播移動動作時推動角色往前（+Z）；其他時候回到原點
   let character = null
-  let sprintPush = false
+  let movePush = false
 
-  function setSprintPush(on) {
-    sprintPush = on
+  function setMovePush(on) {
+    movePush = on
   }
 
-  function updateSprintPush(delta) {
+  function updateMovePush(delta) {
     if (!character) return
-    if (sprintPush && current?.getClip().name === 'Sprint') {
-      character.position.z += SPRINT_SPEED * delta * mixer.timeScale
+    const speed = movePush && MOVE_SPEEDS[current?.getClip().name]
+    if (speed) {
+      character.position.z += speed * delta * mixer.timeScale
       if (character.position.z > RUN_HALF) character.position.z -= 2 * RUN_HALF
     } else {
       character.position.z = 0
@@ -266,7 +267,7 @@ export function createGallery(container) {
     const delta = timer.getDelta()
     mixer?.update(delta)
     updateBallVisibility()
-    updateSprintPush(delta)
+    updateMovePush(delta)
     controls.update()
     renderer.render(scene, camera)
   })
@@ -278,7 +279,7 @@ export function createGallery(container) {
     setSpeed,
     setSkeletonVisible,
     setGridVisible,
-    setSprintPush,
+    setMovePush,
     dispose() {
       renderer.setAnimationLoop(null)
       resizeObserver.disconnect()

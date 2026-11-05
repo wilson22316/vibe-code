@@ -70,7 +70,8 @@ def main():
     s = height_scale(body)
     info = athlete_anims.build_all(rig, ball, off, s)
     scale_to_height(rig, ball, s)
-    info.update({"scale": round(s, 4), "sprint_speed": round(info["sprint_speed"] * s, 3)})
+    info.update({"scale": round(s, 4), "sprint_speed": round(info["sprint_speed"] * s, 3),
+                 "move_speeds": {k: round(v * s, 3) for k, v in info["move_speeds"].items()}})
     export_glb(args.out, rig, body, ball)
     if args.blend:
         os.makedirs(os.path.dirname(os.path.abspath(args.blend)), exist_ok=True)

@@ -22,6 +22,7 @@ CONTACT_GAP = -0.003     # 球貼在手上時，手指微微壓進球皮的深�
 PALM_T = 0.016           # 掌心到手骨中線的厚度（縮放前），用來從球的位置推回手腕
 PALM_A = 0.075           # 掌心中央離手腕的距離（縮放前）
 SPRINT_SPEED = None   # 由 make_sprint() 依步幅計算後填入（縮放前 3.0 m/s；匯出縮放後約 2.84 m/s，見 build_athlete.py）
+MOVE_SPEEDS = {}      # 原地移動動作的推動速度（縮放前，m/s），各 make_* 填入
 
 V = Vector
 
@@ -374,15 +375,12 @@ def make_shoot(P):
         P.key(f + 1, B, 1.0 if f <= SHOOT_RELEASE_FRAME else 0.0)
 
 
-def make_sprint(P):
-    """運球衝刺：12 格跑兩步、運球一次。原地循環，地面上的腳以固定速度往後移。"""
-    global SPRINT_SPEED
-    P.new_action("Sprint")
-    Z = P.Z
-    N, S, YF, YB = 12, 0.40, -0.30, 0.30                 # 影格數、著地比例、腳最前與最後的位置
-
-    # 擺動腳的前後位置用 Hermite 曲線：離地時接著著地的往後速度，落地前一格也已經用著地速度往後收，
-    # 這樣最後一格落地時腳相對地面不動（推動角色時不會往前滑）。M 由「落地前一格」的位置反推。
+def gait(N, S, YF, YB, lift, toe):
+    """原地步態的單腳循環。N：一個循環的影格數；S：著地佔的比例；YF、YB：腳最前、最後的位置；
+    lift：擺動時腳抬多高；toe：擺動時腳尖下壓的最大弧度。回傳 (foot_cycle, 推動速度 m/s)。
+    著地時腳以固定速度往後移，遊戲以同樣速度推動角色，腳才不會打滑。
+    擺動腳的前後位置用 Hermite 曲線：離地時接著著地的往後速度，落地前一格也已經用著地速度往後收，
+    這樣最後一格落地時腳相對地面不動（推動角色時不會往前滑）。M 由「落地前一格」的位置反推。"""
     K_ST = -(1 - S) / S                                  # 著地時的速度（以擺動進度為單位）
     DS = (1 / N) / (1 - S)                               # 一格對應的擺動進度
     s_last = 1 - DS
@@ -393,7 +391,19 @@ def make_sprint(P):
             return base + V((0, YF + (YB - YF) * (ph / S), 0)), 0.0
         s = (ph - S) / (1 - S)
         h = 3 * s * s - 2 * s ** 3 + M * (2 * s ** 3 - 3 * s * s + s)
-        return base + V((0, YB + (YF - YB) * h, 0.20 * math.sin(math.pi * s) ** 0.8)), 0.45 * math.sin(math.pi * s)
+        return base + V((0, YB + (YF - YB) * h, lift * math.sin(math.pi * s) ** 0.8)), toe * math.sin(math.pi * s)
+
+    return foot_cycle, (YB - YF) / (S * N / FPS)
+
+
+def make_sprint(P):
+    """運球衝刺：12 格跑兩步、運球一次。原地循環，地面上的腳以固定速度往後移。"""
+    global SPRINT_SPEED
+    P.new_action("Sprint")
+    Z = P.Z
+    N, S, YF, YB = 12, 0.40, -0.30, 0.30                 # 影格數、著地比例、腳最前與最後的位置
+
+    foot_cycle, speed = gait(N, S, YF, YB, lift=0.20, toe=0.45)
 
     HZs = [(0.0, 0.97), (0.2, 0.86), (0.55, 1.00), (0.85, 1.00), (1.0, 0.97)]
     T_PUSH, T_FLOOR = 0.2, 7 / 12                        # 落地放在整數影格（第 7 格）
@@ -425,7 +435,7 @@ def make_sprint(P):
             u = (t - T_FLOOR) / (1 - T_FLOOR)
             zb, yb = P.floor + (zs0 - P.floor) * (1 - (1 - u) ** 2), -0.62 + 0.16 * u
         P.key(f + 1, V((-0.28, yb, zb)) + Z)
-    SPRINT_SPEED = (YB - YF) / (S * N / FPS)
+    SPRINT_SPEED = MOVE_SPEEDS["Sprint"] = speed
 
 
 def make_triple_threat(P):
@@ -449,7 +459,49 @@ def make_triple_threat(P):
         P.key(f + 1, B)
 
 
-CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat")
+def make_dribble_walk(P):
+    """運球走：24 格（1 秒）走兩步、右手運球一次。原地循環，遊戲以 MOVE_SPEEDS["DribbleWalk"] 推動。
+    走路有雙腳著地期（著地佔 60%），身體在雙腳著地時最低。"""
+    P.new_action("DribbleWalk")
+    Z = P.Z
+    N = 24
+    foot_cycle, speed = gait(N, 0.60, -0.31, 0.31, lift=0.07, toe=0.25)
+    MOVE_SPEEDS["DribbleWalk"] = speed
+    HZ = [(0.0, 0.98), (0.25, 0.86), (0.60, 1.00), (0.85, 1.00), (1.0, 0.98)]   # 右手腕高度（同 Dribble）
+    BX, BY = -0.30, -0.40
+    T_PUSH, T_FLOOR = 0.25, 13 / 24
+
+    def pose_at(t):
+        aR, rR = foot_cycle(t % 1.0, P.ankle_rest(".R") + V((0.01, 0, 0)))
+        aL, rL = foot_cycle((t + 0.5) % 1.0, P.ankle_rest(".L") + V((-0.01, 0, 0)))
+        c = math.cos(2 * math.pi * t)
+        P.pose(f"W{t:.3f}", V((0.008 * math.sin(2 * math.pi * t), -0.03, -0.09 - 0.012 * math.cos(4 * math.pi * t))),
+               (0.10, 0.07, 0.03), 0.04,
+               V((BX, -0.34, smooth_pts(t, HZ))) + Z, V((0.26, -0.06 - 0.12 * c, 0.93 + 0.03 * c)) + Z,
+               aR, aL, handR_dir=V((0, -1.0, -0.25)), poleL=V((0.3, 1.0, -0.3)), footR=rR, footL=rL, twist=0.05 * c)
+
+    def held():
+        return P.seat(V((BX, BY, 0.8)) + Z, V((0, 0, -1))).z - Z.z
+
+    pose_at(0.0)
+    z0 = held()
+    pose_at(T_PUSH)
+    z1 = held()
+    for f in range(N + 1):
+        t = f / N
+        pose_at(t)
+        if t <= T_PUSH:
+            zb = held()
+        elif t <= T_FLOOR:
+            s = (t - T_PUSH) / (T_FLOOR - T_PUSH)
+            zb = z1 - (z1 - P.floor) * s * s
+        else:
+            u = (t - T_FLOOR) / (1 - T_FLOOR)
+            zb = P.floor + (z0 - P.floor) * (1 - (1 - u) ** 2)
+        P.key(f + 1, V((BX, BY, zb)) + Z)
+
+
+CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk")
 
 
 def build_all(rig, ball, off, scale):
@@ -461,6 +513,7 @@ def build_all(rig, ball, off, scale):
     make_shoot(P)
     make_sprint(P)
     make_triple_threat(P)
+    make_dribble_walk(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
@@ -474,4 +527,4 @@ def build_all(rig, ball, off, scale):
                 st.action_slot = act.slots[0]
         ad.action = None
     P.reset()
-    return {"unreachable_over_1cm": P.unreachable, "sprint_speed": SPRINT_SPEED}
+    return {"unreachable_over_1cm": P.unreachable, "sprint_speed": SPRINT_SPEED, "move_speeds": dict(MOVE_SPEEDS)}
