@@ -1390,6 +1390,13 @@ def held_ball(P, sfx):
     return P.seat(c, n, (sfx,))
 
 
+def wrist_for_ball(P, B, grip):
+    """單手持球時，讓球心在 B（縮放前，不含 Z）的手腕位置；grip = (手指方向, 掌心朝向)，同 P.palm。"""
+    d = grip[0].normalized()
+    n = (grip[1] - d * grip[1].dot(d)).normalized()
+    return B - n * (R_BALL / P.s + PALM_T) - d * PALM_A
+
+
 def mirror_x(v):
     return V((-v.x, v.y, v.z))
 
@@ -1397,40 +1404,33 @@ def mirror_x(v):
 CROSS = dict(N=24, PUSH=3, FLOOR=6)      # 換手運球：一個循環的影格；半個循環內手推到第 3 格放開、第 6 格落地
 
 
-def make_crossover(P):
-    """換手運球（循環 24 格）：低重心、抬頭，右手把球往左斜拍過身體前方（第 6 格落地），
-    左手第 12 格接住，再往右拍回（第 18 格落地），第 24 格右手接住。
-    沒運球的手往外抬起護球。雙腳不動，重心和肩膀跟著球左右移。原地，不推動。"""
-    P.new_action("Crossover")
+def switch_dribble(P, name, WR, WL, gripR, gripL, body, bulge=None, bounce=None):
+    """換手運球的共用流程（循環 CROSS["N"] 格）：右手接球後推到第 PUSH 格放開，球在第 FLOOR 格落地、
+    反彈到左手（第 N/2 格接住），左手再推回右手。
+    WR、WL：各自從「接球那一格」算起的手腕關鍵點（縮放前，不含 Z）；grip：持球時的（手指方向, 掌心朝向）；
+    body(f) 回傳 P.pose 的身體參數 (臀部位移, 前傾, 頭, 右踝, 左踝, 右手肘方向, 左手肘方向, 轉身)；
+    bulge(k)：球在空中時（k 從 0 到 1）水平方向額外的偏移，用來避開腿；
+    或給 bounce = (右→左, 左→右) 的落地點 (x, y)：球從放開處沿直線到落地點、再沿直線到接球處（例如穿過胯下）。"""
+    P.new_action(name)
     P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
     Z = P.Z
     N, PUSH, FLOOR = CROSS["N"], CROSS["PUSH"], CROSS["FLOOR"]
     H = N // 2
-    aR = P.ankle_rest(".R") + V((-0.12, 0.04, 0))
-    aL = P.ankle_rest(".L") + V((0.12, -0.06, 0))
-    # 右手腕（左手是鏡像、晚半個循環）：接球 → 往內下方推 → 放開後往外抬起護球 → 回到球彈上來的位置上方
-    WR = [(0, V((-0.30, -0.33, 0.95))), (PUSH, V((-0.15, -0.36, 0.80))), (8, V((-0.36, -0.18, 0.98))),
-          (18, V((-0.37, -0.20, 1.00))), (21, V((-0.31, -0.30, 1.00))), (N, V((-0.30, -0.33, 0.95)))]
-    # 持球時手指朝前下方、掌心朝球（從球的外上方往內推）
-    GRIP_DIR, GRIP_TOWARD = V((0.05, -1.0, -0.45)), V((0.50, 0.0, -1.0))
 
-    def grip_w(f):                                       # 右手貼球的比例：放開後 3 格轉成放鬆，接球前 3 格轉回
+    def grip_w(f):                                       # 手貼球的比例：放開後 3 格轉成放鬆，接球前 3 格轉回
         g = f % N
         if g <= PUSH or g >= N - 3:
             return 1.0
         return max(0.0, 1 - (g - PUSH) / 3, (g - (N - 6)) / 3)
 
     def pose_at(f):
-        t = f / N
-        wR = spline_pts(f % N, WR) + Z
-        wL = mirror_x(spline_pts((f + H) % N, WR)) + Z
-        c = math.cos(2 * math.pi * t)                    # t=0 球在右邊，t=0.5 在左邊
-        P.pose(f"X{f}", V((-0.03 * c, 0.02, -0.22 - 0.01 * math.cos(4 * math.pi * t))), (0.18, 0.10, 0.04), -0.20,
-               wR, wL, aR, aL, poleR=V((-0.5, 0.7, -0.5)), poleL=V((0.5, 0.7, -0.5)), twist=-0.07 * c)
-        for sfx, w, side in ((".R", grip_w(f), 1), (".L", grip_w(f + H), -1)):
+        hips, lean, head, aR, aL, poleR, poleL, twist = body(f)
+        P.pose(f"{name}{f}", hips, lean, head, spline_pts(f % N, WR) + Z, spline_pts((f + H) % N, WL) + Z, aR, aL,
+               poleR=poleR, poleL=poleL, twist=twist)
+        for sfx, w, (gd, gt) in ((".R", grip_w(f), gripR), (".L", grip_w(f + H), gripL)):
             P.palm("hand" + sfx, P.pb["forearm" + sfx].matrix.col[1].to_3d(), natural_palm(P, sfx))
             if w > 0:
-                P.palm("hand" + sfx, GRIP_DIR, V((GRIP_TOWARD.x * side, GRIP_TOWARD.y, GRIP_TOWARD.z)), w)
+                P.palm("hand" + sfx, gd, gt, w)
 
     held = {}                                            # 接球、放開時的球心
     for f, sfx in ((0, ".R"), (PUSH, ".R"), (H, ".L"), (H + PUSH, ".L")):
@@ -1439,17 +1439,25 @@ def make_crossover(P):
     held[N] = held[0]
     floor = P.floor + Z.z
 
-    def flight(f, f_rel, f_catch):                      # 放開後：往另一側斜拍落地、反彈到另一隻手
+    def flight(f, f_rel, f_catch):                      # 放開後：斜拍落地、反彈到另一隻手
         a, b = held[f_rel], held[f_catch]
         k = (f - f_rel) / (f_catch - f_rel)
-        xy = a.lerp(b, k) + V((0, -0.07 * math.sin(math.pi * k), 0))   # 水平等速；彈地點在身體前方，避開膝蓋
         f_floor = f_rel - PUSH + FLOOR
+        if bounce is None:
+            xy = a.lerp(b, k) + bulge(k)                 # 水平等速
+        else:
+            c = V(bounce[0] if f_rel < H else bounce[1]).to_3d()
+            xy = None                                    # 沿直線：水平位置跟著高度走（先往下再往旁邊，才不會擦到腿）
         if f <= f_floor:
             s = (f - f_rel) / (f_floor - f_rel)
             z = a.z - (a.z - floor) * (0.4 * s + 0.6 * s * s)
+            if xy is None:
+                xy = a.lerp(c, (a.z - z) / (a.z - floor))
         else:
             u = (f - f_floor) / (f_catch - f_floor)
             z = floor + (b.z - floor) * (1 - (1 - u) ** 2)
+            if xy is None:
+                xy = c.lerp(b, (z - floor) / (b.z - floor))
         return V((xy.x, xy.y, z))
 
     for f in range(N + 1):
@@ -1467,8 +1475,57 @@ def make_crossover(P):
         P.key(f + 1, B)
 
 
+def make_crossover(P):
+    """換手運球（循環 24 格）：低重心、抬頭，右手把球往左斜拍過身體前方（第 6 格落地），
+    左手第 12 格接住，再往右拍回（第 18 格落地），第 24 格右手接住。
+    沒運球的手往外抬起護球。雙腳不動，重心和肩膀跟著球左右移。原地，不推動。"""
+    N, PUSH = CROSS["N"], CROSS["PUSH"]
+    aR = P.ankle_rest(".R") + V((-0.12, 0.04, 0))
+    aL = P.ankle_rest(".L") + V((0.12, -0.06, 0))
+    # 右手腕（左手是鏡像）：接球 → 往內下方推 → 放開後往外抬起護球 → 回到球彈上來的位置上方
+    WR = [(0, V((-0.30, -0.33, 0.95))), (PUSH, V((-0.15, -0.36, 0.80))), (8, V((-0.36, -0.18, 0.98))),
+          (18, V((-0.37, -0.20, 1.00))), (21, V((-0.31, -0.30, 1.00))), (N, V((-0.30, -0.33, 0.95)))]
+    # 持球時手指朝前下方、掌心朝球（從球的外上方往內推）
+    gripR = (V((0.05, -1.0, -0.45)), V((0.50, 0.0, -1.0)))
+
+    def body(f):
+        t = f / N
+        c = math.cos(2 * math.pi * t)                    # t=0 球在右邊，t=0.5 在左邊
+        return (V((-0.03 * c, 0.02, -0.22 - 0.01 * math.cos(4 * math.pi * t))), (0.18, 0.10, 0.04), -0.20,
+                aR, aL, V((-0.5, 0.7, -0.5)), V((0.5, 0.7, -0.5)), -0.07 * c)
+
+    switch_dribble(P, "Crossover", WR, [(k, mirror_x(v)) for k, v in WR], gripR, (gripR[0], mirror_x(gripR[1])), body,
+                   lambda k: V((0, -0.07 * math.sin(math.pi * k), 0)))   # 彈地點在身體前方，避開膝蓋
+
+
+def make_between_legs(P):
+    """胯下運球（循環 24 格）：左腳在前的弓箭步、低重心、上身前傾。右手在身體前方把球往左後方拍，
+    球從兩腿中間落地（第 6 格），左手在左腿後外側接住（第 12 格），再往右前方拍回、從兩腿中間落地（第 18 格），
+    第 24 格右手接住。雙腳不動，原地，不推動。"""
+    N, PUSH = CROSS["N"], CROSS["PUSH"]
+    aR = P.ankle_rest(".R") + V((-0.17, 0.22, 0))       # 右腳在後
+    aL = P.ankle_rest(".L") + V((0.17, -0.22, 0))       # 左腳在前
+    gripR = (V((0.0, -1.0, -0.6)), V((0.3, 0.4, -1.0)))    # 右手從右前上方往左後方推
+    gripL = (V((0.2, -0.8, -1.0)), V((-0.6, -0.2, -0.8)))  # 左手在左腿後外側，從左後上方往右前方推
+    # 球心（接球、放開）換算成手腕。各自從接球那一格算起：接球 → 推球 → 放開後往外抬起護球 → 回到球彈上來的位置上方
+    wR = lambda B: wrist_for_ball(P, V(B), gripR)
+    wL = lambda B: wrist_for_ball(P, V(B), gripL)
+    WR = [(0, wR((-0.16, -0.34, 0.61))), (PUSH, wR((-0.10, -0.25, 0.55))), (8, V((-0.36, -0.15, 0.95))),
+          (18, V((-0.37, -0.17, 0.95))), (21, wR((-0.16, -0.32, 0.68))), (N, wR((-0.16, -0.34, 0.61)))]
+    WL = [(0, wL((0.44, 0.04, 0.76))), (PUSH, wL((0.42, 0.02, 0.70))), (8, V((0.36, -0.10, 0.95))),
+          (18, V((0.37, -0.08, 0.95))), (21, wL((0.44, 0.03, 0.83))), (N, wL((0.44, 0.04, 0.76)))]
+
+    def body(f):
+        t = f / N
+        c = math.cos(2 * math.pi * t)
+        return (V((-0.02 * c, 0.0, -0.10 - 0.01 * math.cos(4 * math.pi * t))), (0.28 - 0.04 * c, 0.10, 0.04), -0.28 + 0.04 * c,
+                aR, aL, V((-0.5, 0.7, -0.5)), V((0.6, 0.6, -0.4)), -0.15 * c)
+
+    switch_dribble(P, "BetweenLegs", WR, WL, gripR, gripL, body, bounce=((0.27, 0.13), (0.19, 0.11)))
+
+
 CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot",
-         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound", "Crossover")
+         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound", "Crossover", "BetweenLegs")
 
 
 def build_all(rig, ball, off, scale):
@@ -1494,6 +1551,7 @@ def build_all(rig, ball, off, scale):
     make_defense_slide(P)
     make_rebound(P)
     make_crossover(P)
+    make_between_legs(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
