@@ -388,13 +388,14 @@ def make_shoot(P):
          (6, V((0, -0.02, -0.16)), (0.06, 0.05, 0.03), 0.05, V((-0.04, -0.28, 1.12)), V((-0.10, -0.22, 1.04)), V((0.09, -0.27, 1.10)), V((0.15, -0.6, 1)), 0.0, V((-0.2, 0.3, -1.0)), V((0.6, 0.2, -0.6))),
          (10, V((0, -0.02, -0.22)), (0.08, 0.04, 0.02), 0.00, V((-0.04, -0.25, 1.08)), V((-0.10, -0.19, 1.00)), V((0.09, -0.24, 1.06)), V((0.15, -0.6, 1)), 0.0, V((-0.2, 0.3, -1.0)), V((0.6, 0.2, -0.6))),
          (15, V((0, 0.00, 0.04)), (0.00, 0.00, 0.00), -0.05, V((-0.07, -0.20, 1.80)), V((-0.08, -0.13, 1.67)), V((0.05, -0.18, 1.77)), V((0, -0.35, 1)), 0.04, V((-0.12, -1.0, -0.2)), V((0.7, -0.2, -0.4))),
-         (18, V((0, 0.00, 0.14)), (-0.02, 0.0, 0.0), -0.12, V((-0.07, -0.21, 2.06)), V((-0.07, -0.14, 1.92)), V((0.04, -0.17, 1.95)), V((0, -0.3, 1)), 0.14, V((-0.12, -1.0, 0.0)), V((0.7, -0.2, -0.4))),
-         (21, V((0, 0.00, 0.10)), (0.00, 0.0, 0.0), -0.08, V((-0.07, -0.21, 2.06)), V((-0.08, -0.30, 1.88)), V((0.26, -0.15, 1.52)), V((0, -1, -0.6)), 0.10, V((-0.12, -1.0, 0.0)), V((0.5, 0.6, -0.4))),
+         (18, V((0, 0.00, 0.14)), (-0.02, 0.0, 0.0), -0.12, V((-0.07, -0.21, 2.06)), V((-0.07, -0.14, 1.92)), V((0.06, -0.21, 2.03)), V((0, -0.3, 1)), 0.14, V((-0.12, -1.0, 0.0)), V((0.7, -0.2, -0.4))),
+         # 出手後左手由 drop_left 直接放下，這裡的左手欄位為 None
+         (21, V((0, 0.00, 0.10)), (0.00, 0.0, 0.0), -0.08, V((-0.07, -0.21, 2.06)), V((-0.08, -0.30, 1.88)), None, V((0, -1, -0.6)), 0.10, V((-0.12, -1.0, 0.0)), None),
          # 落地屈膝，右手仍伸在前上方（收尾停留）
-         (24, V((0, -0.01, -0.10)), (0.03, 0.02, 0.01), -0.02, V((-0.07, -0.21, 2.06)), V((-0.09, -0.36, 1.64)), V((0.28, -0.12, 1.36)), V((0, -1, -0.6)), 0.0, V((-0.12, -1.0, 0.0)), V((0.5, 0.6, -0.4))),
-         (28, V((0, -0.02, -0.12)), (0.04, 0.03, 0.01), 0.02, V((-0.07, -0.21, 2.06)), V((-0.11, -0.38, 1.56)), V((0.28, -0.22, 1.20)), V((0, -1, -0.5)), 0.0, V((-0.15, -0.8, -0.3)), V((0.5, 0.2, -0.8))),
-         # 放下雙手：手腕沿身體前方往下劃弧（手臂接近伸直），手肘經過朝下再轉回朝後
-         (31, V((0, -0.01, -0.07)), (0.02, 0.01, 0.0), 0.04, V((-0.07, -0.21, 2.06)), V((-0.21, -0.36, 1.10)), V((0.24, -0.20, 0.98)), V((0, -0.5, -1)), 0.0, V((-0.3, -0.3, -1.0)), V((0.3, -0.3, -1.0))),
+         (24, V((0, -0.01, -0.10)), (0.03, 0.02, 0.01), -0.02, V((-0.07, -0.21, 2.06)), V((-0.09, -0.36, 1.64)), None, V((0, -1, -0.6)), 0.0, V((-0.12, -1.0, 0.0)), None),
+         (28, V((0, -0.02, -0.12)), (0.04, 0.03, 0.01), 0.02, V((-0.07, -0.21, 2.06)), V((-0.11, -0.38, 1.56)), None, V((0, -1, -0.5)), 0.0, V((-0.15, -0.8, -0.3)), None),
+         # 放下右手：手腕沿身體前方往下劃弧（手臂接近伸直），手肘經過朝下再轉回朝後
+         (31, V((0, -0.01, -0.07)), (0.02, 0.01, 0.0), 0.04, V((-0.07, -0.21, 2.06)), V((-0.21, -0.36, 1.10)), None, V((0, -0.5, -1)), 0.0, V((-0.3, -0.3, -1.0)), None),
          # 結束：和 Idle 一樣站直、雙手垂在大腿外側
          (SHOOT_END, V((0, 0, -0.012)), (0.0, 0.0, 0.0), 0.02, V((-0.07, -0.21, 2.06)), V((-0.215, -0.03, 0.85)), V((0.215, -0.03, 0.85)), V((0, 0, -1)), 0.0, V((-0.35, 1.0, -0.25)), V((0.35, 1.0, -0.25)))]
 
@@ -402,7 +403,7 @@ def make_shoot(P):
         """出手前每段緩入緩出（各姿勢到位）；出手後用平滑曲線一口氣收回，中途不停頓。"""
         if f > SHOOT_RELEASE_FRAME:
             ks = [k for k in K if k[0] >= SHOOT_RELEASE_FRAME]
-            sp = lambda i: spline_pts(f, [(k[0], k[i]) for k in ks])
+            sp = lambda i: spline_pts(f, [(k[0], k[i]) for k in ks if k[i] is not None])
             lean = spline_pts(f, [(k[0], V(k[2])) for k in ks])
             return (sp(1), tuple(lean), sp(3), sp(4), sp(5), sp(6), sp(7), smooth_pts(f, [(k[0], k[8]) for k in ks]),
                     sp(9), sp(10))
@@ -435,7 +436,7 @@ def make_shoot(P):
         return rot @ d0, rot @ n0
 
     up = V((0, 0, 1))
-    B_release = release_axes = end_axes = release_L = end_L = end_R = hold_R = None
+    B_release = release_axes = end_axes = release_L = end_L = end_R = hold_R = rel_dL = None
     restR, restL = P.ankle_rest(".R"), P.ankle_rest(".L")
 
     def stance(f):                                       # 運球站姿 → 投籃站姿；空中換成 Idle 站姿，落地後腳不再移動
@@ -445,6 +446,8 @@ def make_shoot(P):
     # 先擺出結束姿勢（Idle），記下雙手方向，收尾時轉回這裡
     hd, ln, ht, bl, wR, wL, hR, lift, pR, pL = interp(SHOOT_END)
     P.pose("S_end", hd, ln, ht, wR + Z, wL + Z, restR, restL, poleR=pR, poleL=pL)
+    end_dL, end_pL = wL + Z - P.pb["upper_arm.L"].head, pL
+    rel_pL = K[[k[0] for k in K].index(SHOOT_RELEASE_FRAME)][10]
     end_axes = hand_axes()
     end_R, end_L = P.wrist_local("hand.R"), P.wrist_local("hand.L")
     for f in range(SHOOT_END + 1):
@@ -469,7 +472,9 @@ def make_shoot(P):
             P.palm("hand.L", dL, -sL, kL)
 
         do_pose(wristL)
-        if f > SHOOT_RELEASE_FRAME:
+        if f > SHOOT_RELEASE_FRAME:                      # 身體擺好後，左手以肩膀為圓心直接放下
+            wristL, pL = drop_left(P, f, SHOOT_RELEASE_FRAME, SHOOT_END, rel_dL, end_dL, rel_pL, end_pL)
+            do_pose(wristL)
             g = f - SHOOT_RELEASE_FRAME
             if g <= 10:                                  # 壓腕並停留（世界方向）
                 d, n = flick(f, release_axes, end_axes)
@@ -492,6 +497,7 @@ def make_shoot(P):
                     do_pose(wristL)
             B_release, release_axes = B, hand_axes()
             release_L = P.wrist_local("hand.L")
+            rel_dL = P.pb["hand.L"].head - P.pb["upper_arm.L"].head
         else:
             B = B_release                                # 出手後球停在出手位置，縮小消失時才不會掃過手
         P.key(f + 1, B, 1.0 if f <= SHOOT_RELEASE_FRAME else 0.0)
@@ -791,6 +797,31 @@ def follow_through(P, g, total, hold, rel_axes, end_axes, end_R, rel_L, end_L, s
     P.set_wrist_local("hand.L", slerp_short(rel_L, end_L, ease(min(1.0, g / LEFT_RELAX))))
 
 
+DROP_MID = V((0.40, -0.50, -0.77)).normalized()   # 左手放下途中，手腕相對肩膀的方向：身體前側偏外、斜下方
+
+
+def drop_left(P, f, f0, f1, d0, d1, pole0, pole1):
+    """出手後扶球的左手直接放下（第 f0 格出手、第 f1 格到結束姿勢），中途不停留、不往旁邊甩。
+    以肩膀為圓心：手腕相對肩膀的方向從出手時（d0）經身體前側（DROP_MID）轉到結束時（d1），
+    不會貼著臉直直掉下來；手肘從朝外經過朝下再轉回朝後。
+    d0、d1 是手腕相對 upper_arm.L 起點的位置。呼叫前要先擺好第 f 格的身體（肩膀位置），回傳 (手腕位置, 手肘方向)。"""
+    dirs = [(0, d0.normalized()), (0.5, DROP_MID), (1, d1.normalized())]
+    lens = [(0, d0.length), (0.5, d1.length), (1, d1.length)]   # 途中手臂和 Idle 一樣微彎（彎太多像端盤子、打直太僵）
+    # 曲線依轉過的角度重新取參數，整段以緩入緩出的速度轉完（直接用關鍵點時間，中途會忽快忽慢）
+    n = 64
+    us = [spline_pts(i / n, dirs).normalized() for i in range(n + 1)]
+    cum = [0.0]
+    for a, b in zip(us, us[1:]):
+        cum.append(cum[-1] + a.angle(b))
+    target = ease((f - f0) / (f1 - f0)) * cum[-1]
+    i = min(n - 1, max(k for k in range(n) if cum[k] <= target))
+    s = (i + (target - cum[i]) / max(1e-9, cum[i + 1] - cum[i])) / n
+    u = spline_pts(s, dirs).normalized()
+    fm = (f0 + f1) / 2
+    return (P.pb["upper_arm.L"].head + u * spline_pts(s, lens),
+            spline_pts(f, [(f0, pole0), (fm, V((0.3, -0.3, -1.0))), (f1, pole1)]))
+
+
 def make_set_shot(P):
     """定點投籃（單次 30 格）：從 TripleThreat 第 0 格開始，屈膝收球 → 球舉到額頭前上方 → 伸膝伸手，
     第 14 格出手（雙腳不離地）→ 壓腕停留 → 雙手放下、站直。出手後球縮放為 0。"""
@@ -805,33 +836,36 @@ def make_set_shot(P):
          (5, V((0, 0.02, -0.25)), V((0.10, 0.06, 0.03)), -0.14, V((-0.10, -0.27, 1.06)), None, None),
          (10, V((0, 0.00, -0.13)), V((0.02, 0.00, 0.00)), -0.10, V((-0.07, -0.20, 1.70)), None, None),
          (SET_RELEASE, V((0, 0.00, -0.03)), V((-0.02, 0.0, 0.0)), -0.12, V((-0.07, -0.22, 1.93)), None, None),
-         (17, V((0, 0.00, -0.04)), V((0.0, 0.0, 0.0)), -0.10, None, V((-0.09, -0.32, 1.74)), V((0.24, -0.14, 1.46))),
-         (21, V((0, 0.00, -0.05)), V((0.0, 0.0, 0.0)), -0.08, None, V((-0.10, -0.34, 1.70)), V((0.24, -0.30, 1.22))),
-         # 放下手臂：手腕沿身體前方往下劃弧（手臂接近伸直），不從胸前直線收回
-         (26, V((0, 0.00, -0.04)), V((0.01, 0.0, 0.0)), -0.03, None, V((-0.20, -0.38, 1.08)), V((0.22, -0.22, 0.95))),
+         (17, V((0, 0.00, -0.04)), V((0.0, 0.0, 0.0)), -0.10, None, V((-0.09, -0.32, 1.74)), None),
+         (21, V((0, 0.00, -0.05)), V((0.0, 0.0, 0.0)), -0.08, None, V((-0.10, -0.34, 1.70)), None),
+         # 放下右手：手腕沿身體前方往下劃弧（手臂接近伸直），不從胸前直線收回（左手由 drop_left 直接放下）
+         (26, V((0, 0.00, -0.04)), V((0.01, 0.0, 0.0)), -0.03, None, V((-0.20, -0.38, 1.08)), None),
          (SET_END, V((0, 0, -0.012)), V((0.0, 0.0, 0.0)), 0.02, None, V((-0.215, -0.03, 0.85)), V((0.215, -0.03, 0.85)))]
     pick = lambda i: [(k[0], k[i]) for k in K if k[i] is not None]
     hipsK, leanK, headK, ballK, wRK, wLK = pick(1), pick(2), pick(3), pick(4), pick(5), pick(6)
 
-    def pose_body(f, wR, wL):
+    poleLK = [(0, V((0.6, 0.6, -0.6))), (10, V((0.7, -0.2, -0.4))), (SET_RELEASE, V((0.7, -0.2, -0.4)))]
+
+    def pose_body(f, wR, wL, pL=None):
         pts = spline_pts if f > SET_RELEASE else smooth_pts   # 出手後一口氣收回，關鍵影格不停頓
         P.pose(f"P{f}", pts(f, hipsK), tuple(pts(f, leanK)), pts(f, headK), wR, wL, aR, aL,
                # 右手肘從朝後轉到朝前下方，中途經過朝外下方（直接內插會在中途接近 0 而突然翻轉）
                # 出手後放下手臂時手肘經過朝下再轉回朝後，手臂直直垂下（停在朝前或朝外會變成手叉腰）
                poleR=pts(f, [(0, V((-0.6, 0.8, -0.3))), (5, V((-0.9, 0.0, -0.5))), (10, V((-0.12, -1.0, -0.1))),
                                     (21, V((-0.12, -1.0, -0.1))), (26, V((-0.3, -0.3, -1.0))), (SET_END, V((-0.35, 1.0, -0.25)))]),
-               poleL=pts(f, [(0, V((0.6, 0.6, -0.6))), (10, V((0.7, -0.2, -0.4))), (19, V((0.7, -0.2, -0.4))),
-                                    (24, V((0.3, -0.3, -1.0))), (SET_END, V((0.35, 1.0, -0.25)))]))
+               poleL=pL if pL is not None else smooth_pts(f, poleLK))
 
     def hand_axes(name):
         m = P.pb[name].matrix.to_3x3()
         return m.col[1].copy(), -m.col[2].copy()
 
-    pose_body(SET_END, wRK[-1][1] + Z, wLK[-1][1] + Z)    # 先擺出結束姿勢，記下雙手方向
+    end_pL = V((0.35, 1.0, -0.25))                         # 結束時左手肘和 Idle 一樣朝後
+    pose_body(SET_END, wRK[-1][1] + Z, wLK[-1][1] + Z, end_pL)   # 先擺出結束姿勢，記下雙手方向
+    end_dL = wLK[-1][1] + Z - P.pb["upper_arm.L"].head
     end_axes = hand_axes("hand.R")
     end_R, end_L = P.wrist_local("hand.R"), P.wrist_local("hand.L")
     state = {}
-    B_rel = rel_R = rel_L = rel_wR = rel_wL = None
+    B_rel = rel_R = rel_L = rel_wR = rel_wL = rel_dL = None
     for f in range(SET_END + 1):
         if f <= SET_RELEASE:
             B = smooth_pts(f, ballK) + Z
@@ -841,13 +875,17 @@ def make_set_shot(P):
             B_rel, rel_R = B, hand_axes("hand.R")
             rel_L = P.wrist_local("hand.L")
             rel_wR, rel_wL = P.pb["hand.R"].head.copy(), P.pb["hand.L"].head.copy()
+            rel_dL = rel_wL - P.pb["upper_arm.L"].head
             P.key(f + 1, B)
             continue
         gf = f - SET_RELEASE
         # 出手後手腕從出手時的位置接到收尾的關鍵影格
         wR = spline_pts(f, [(SET_RELEASE, rel_wR)] + [(k, v + Z) for k, v in wRK])
-        wL = spline_pts(f, [(SET_RELEASE, rel_wL)] + [(k, v + Z) for k, v in wLK])
-        pose_body(f, wR, wL)
+        n = len(P.unreachable)                            # 先擺好身體（肩膀位置），左手再以肩膀為圓心放下；
+        pose_body(f, wR, P.pb["hand.L"].head.copy())      # 這次預擺的左手只是暫放，搆不到不記錄
+        del P.unreachable[n:]
+        wL, pL = drop_left(P, f, SET_RELEASE, SET_END, rel_dL, end_dL, poleLK[-1][1], end_pL)
+        pose_body(f, wR, wL, pL)
         follow_through(P, gf, SET_END - SET_RELEASE, 8, rel_R, end_axes, end_R, rel_L, end_L, state)
         P.key(f + 1, B_rel + V((0, -4.5, 5.4)) * (gf / FPS), 0.0)   # 球沿出手方向飛走（隱藏），縮小時不會掃過手
 
@@ -920,31 +958,33 @@ def make_layup(P):
     # 右手肘：運球朝後 → 收球朝外下 → 托球朝前下 → 落地後放鬆朝後（中途不經過 0，免得翻轉）
     poleRK = [(0, V((-0.35, 1.0, -0.25))), (6, V((-0.6, 0.8, -0.3))), (11, V((-0.9, 0.0, -0.5))),
               (L["RELEASE"], V((-0.12, -1.0, -0.1))), (L["LAND"], V((-0.3, -0.3, -1.0))), (L["END"], V((-0.35, 1.0, -0.25)))]
-    poleLK = [(0, V((0.3, 1.0, -0.3))), (8, V((0.6, 0.4, -0.6))), (L["RELEASE"], V((0.6, 0.4, -0.6))),
-              (L["LAND"], V((0.3, -0.3, -1.0))), (L["END"], V((0.35, 1.0, -0.25)))]   # 放下時手肘朝下，結束和 Idle 一樣朝後
+    poleLK = [(0, V((0.3, 1.0, -0.3))), (8, V((0.6, 0.4, -0.6))), (13, V((0.7, -0.2, -0.4))),
+              (L["RELEASE"], V((0.7, -0.2, -0.4)))]       # 出手後由 drop_left 決定
+    end_pL = V((0.35, 1.0, -0.25))                       # 結束和 Idle 一樣朝後
 
-    def pose_body(f, wR, wL):
+    def pose_body(f, wR, wL, pL=None):
         aR, aL, rR, rL = feet(f)
         pts = spline_pts if f > L["RELEASE"] else smooth_pts   # 出手後一口氣收回，關鍵影格不停頓
         P.pose(f"Y{f}", pts(f, hipsK) + V((0, 0, jump(f))), tuple(pts(f, leanK)), pts(f, headK),
                wR, wL, aR, aL, handR_dir=V((0, -1.0, -0.3)) if f <= 2 else None, poleR=pts(f, poleRK),
-               poleL=pts(f, poleLK),
+               poleL=pL if pL is not None else smooth_pts(f, poleLK),
                footR=rR, footL=rL, twist=smooth_pts(f, twistK))
 
     grip_tt = GRIP_TT
     grip_lay = (V((0.05, 0.40, -0.92)), V((0, 0.92, 0.40)), V((1.0, -0.1, 0.1)), V((0, -0.1, 1.0)))
-    # 球心（不含跳躍高度）：第 3 格起雙手持球，第 14 格起只剩右手托球；第 3 格的位置在第 2 格算出後補上
+    # 球心（不含跳躍高度）：第 3 格起雙手持球（右手托在球下、左手扶在球左側）到出手；第 3 格的位置在第 2 格算出後補上
     ballK = [(3, None), (L["PUSH_R"], V((-0.18, -0.26, 1.00))), (9, V((-0.16, -0.27, 1.08))),
              (L["TAKEOFF"], V((-0.14, -0.28, 1.25))), (13, V((-0.13, -0.31, 1.55))),
              (15, V((-0.13, -0.34, 1.84))), (L["RELEASE"], V((-0.12, -0.37, 1.97)))]
     wRK = [(L["LAND"], V((-0.21, -0.36, 1.15))), (L["END"], V((-0.215, -0.03, 0.85)))]   # 沿身體前方劃弧放下，結束同 Idle
-    wLK = [(16, V((0.30, -0.28, 1.50))), (L["LAND"], V((0.26, -0.10, 1.05))), (L["END"], V((0.215, -0.03, 0.85)))]
+    wLK = [(L["END"], V((0.215, -0.03, 0.85)))]
 
     def hand_axes(name):
         m = P.pb[name].matrix.to_3x3()
         return m.col[1].copy(), -m.col[2].copy()
 
-    pose_body(L["END"], wRK[-1][1] + Z, wLK[-1][1] + Z)  # 先擺出結束姿勢，記下雙手方向
+    pose_body(L["END"], wRK[-1][1] + Z, wLK[-1][1] + Z, end_pL)  # 先擺出結束姿勢，記下雙手方向
+    end_dL = wLK[-1][1] + Z - P.pb["upper_arm.L"].head
     end_axes = hand_axes("hand.R")
     end_R, end_L = P.wrist_local("hand.R"), P.wrist_local("hand.L")
     state = {}
@@ -966,28 +1006,19 @@ def make_layup(P):
             B = smooth_pts(f, ballK) + Z + J
             w = ease(min(1.0, (f - 3) / 8))
             g = [a.lerp(b, w) for a, b in zip(grip_tt, grip_lay)]
-            if f <= 13:                                   # 雙手持球
-                P.hold_two(B, g[0], g[1], g[2], g[3], lambda wR, wL: pose_body(f, wR, wL))
-            else:                                         # 右手托球往上，左手離開球護在旁邊
-                sR, sL = g[0].normalized(), g[2].normalized()
-                dR = (g[1] - sR * g[1].dot(sR)).normalized()
-                dL = (g[3] - sL * g[3].dot(sL)).normalized()
-                reach = R_BALL / P.s + PALM_T
-                kL = ease(min(1.0, (f - 13) / 3))
-                wL = (B + sL * (reach + 0.05 * kL) - dL * PALM_A).lerp(wLK[0][1] + Z + J, kL)
-                pose_body(f, B + sR * reach - dR * PALM_A, wL)
-                P.palm("hand.R", dR, -sR)
-                P.palm("hand.L", dL, -sL, 1 - kL)
-                B = P.seat(B, -sR)
+            P.hold_two(B, g[0], g[1], g[2], g[3], lambda wR, wL: pose_body(f, wR, wL))
             rel = (B, hand_axes("hand.R"), P.wrist_local("hand.L"),
-                   P.pb["hand.R"].head.copy(), P.pb["hand.L"].head.copy())
+                   P.pb["hand.R"].head.copy(), P.pb["hand.L"].head - P.pb["upper_arm.L"].head)
             P.key(f + 1, B)
             continue
-        B_r, rel_R, rel_L, rel_wR, rel_wL = rel          # 出手後
+        B_r, rel_R, rel_L, rel_wR, rel_dL = rel          # 出手後
         gf = f - L["RELEASE"]
         wR = spline_pts(f, [(L["RELEASE"], rel_wR)] + [(k, v + Z) for k, v in wRK])
-        wL = spline_pts(f, [(L["RELEASE"], rel_wL)] + [(k, v + Z + V((0, 0, jump(k)))) for k, v in wLK])
-        pose_body(f, wR, wL)
+        n = len(P.unreachable)                            # 先擺好身體（肩膀位置），左手再以肩膀為圓心放下；
+        pose_body(f, wR, P.pb["hand.L"].head.copy())      # 這次預擺的左手只是暫放，搆不到不記錄
+        del P.unreachable[n:]
+        wL, pL = drop_left(P, f, L["RELEASE"], L["END"], rel_dL, end_dL, poleLK[-1][1], end_pL)
+        pose_body(f, wR, wL, pL)
         follow_through(P, gf, L["END"] - L["RELEASE"], 4, rel_R, end_axes, end_R, rel_L, end_L, state, snap_deg=80)
         P.key(f + 1, B_r + V((0, -1.5, 4.0)) * (gf / FPS), 0.0)   # 球往籃框方向飛走（隱藏）
     MOVE_SPEEDS["Layup"] = v0
