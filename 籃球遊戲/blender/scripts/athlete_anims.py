@@ -194,7 +194,8 @@ class Poser:
         # aim 是「從靜止姿勢轉最少」，骨頭繞自己的扭轉和手肘實際的彎曲軸無關：手臂舉過頭時會漂掉一百多度，
         # 手腕得扭很大才能讓掌心朝對的方向。hinge_roll 有設定的一側，每根骨頭對準後立刻繞自己的軸
         # 轉到和彎曲軸保持固定角度（Idle 的關係）；上臂要在前臂對準前轉，否則會把前臂帶歪。
-        ref = self.hinge_roll.get(b1[-2:])
+        # 只用在手臂：腿也用 two_bone，同樣的後綴（.L/.R）不能讓大腿、小腿跟著轉
+        ref = self.hinge_roll.get(b1[-2:]) if b1.startswith("upper_arm") else None
         self.aim(b1, S, E - S)
         if ref is not None:
             self._roll_to_hinge(b1, p.cross(u), ref[0])
