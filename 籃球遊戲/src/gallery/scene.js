@@ -86,6 +86,7 @@ export function startClipsAtZero(clips) {
   }
 }
 
+const BALL_NODE = 'Ball'
 const DEFAULT_CLIP = 'Idle'
 // 淡入淡出秒數，沿用 reference 原型的 0.35 s
 const FADE_SECONDS = 0.35
@@ -155,6 +156,24 @@ export function createGallery(container) {
   let current = null
   const timer = new THREE.Timer()
 
+  // 球的縮放軌道只用來表示「有球／沒球」。交給 mixer 淡入淡出的話，從 Shoot（球已消失）
+  // 切到別的動作時，球會從 0 慢慢變大。所以把軌道拿出來，每格依目前（淡入中）的動作決定顯示或隱藏。
+  let ball = null
+  const ballScale = new Map()
+
+  function takeBallScaleTrack(clip) {
+    const i = clip.tracks.findIndex((t) => t.name === `${BALL_NODE}.scale`)
+    if (i < 0) return
+    ballScale.set(clip.name, clip.tracks[i].createInterpolant())
+    clip.tracks.splice(i, 1)
+  }
+
+  function updateBallVisibility() {
+    if (!current) return
+    const scale = ballScale.get(current.getClip().name)
+    ball.visible = !scale || scale.evaluate(current.time)[0] > 0.5
+  }
+
   // 切換動作：新動作從頭播，和目前的動作淡入淡出。再點同一個動作會直接從頭播。
   function play(name) {
     const next = actions[name]
@@ -202,7 +221,10 @@ export function createGallery(container) {
 
     mixer = new THREE.AnimationMixer(root)
     startClipsAtZero(gltf.animations)
+    ball = root.getObjectByName(BALL_NODE)
+    ball.scale.setScalar(1)
     for (const clip of gltf.animations) {
+      takeBallScaleTrack(clip)
       const action = mixer.clipAction(clip)
       // 單次動作播完停在最後一格（見 CLAUDE.md 動作規格表）
       if (ONCE_CLIPS.has(clip.name)) {
@@ -219,6 +241,7 @@ export function createGallery(container) {
   renderer.setAnimationLoop((time) => {
     timer.update(time)
     mixer?.update(timer.getDelta())
+    updateBallVisibility()
     controls.update()
     renderer.render(scene, camera)
   })
