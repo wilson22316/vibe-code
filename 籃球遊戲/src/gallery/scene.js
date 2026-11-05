@@ -14,6 +14,9 @@ const HOME_TGT = new THREE.Vector3(-0.1, 0.78, 0.1)
 const HEMI_INTENSITY = 0.6 * Math.PI
 const SUN_INTENSITY = 0.7 * Math.PI
 
+const DEFAULT_CLIP = 'Idle'
+const ONCE_CLIPS = new Set(['Shoot'])
+
 export function createGallery(container) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -74,7 +77,18 @@ export function createGallery(container) {
   resize()
 
   let mixer = null
+  const actions = {}
+  let current = null
   const timer = new THREE.Timer()
+
+  // 直接切換動作（淡入淡出在 TODO 第 16 項）。再點同一個動作會從頭播。
+  function play(name) {
+    const action = actions[name]
+    if (!action) throw new Error(`模型裡找不到 ${name} 動作`)
+    current?.stop()
+    current = action
+    current.play()
+  }
 
   // 載入角色並播放 Idle；失敗時 ready 會 reject，由畫面顯示錯誤
   const ready = new GLTFLoader().loadAsync(MODEL_URL).then((gltf) => {
@@ -88,11 +102,18 @@ export function createGallery(container) {
     scene.add(root)
 
     mixer = new THREE.AnimationMixer(root)
-    const idle = THREE.AnimationClip.findByName(gltf.animations, 'Idle')
-    if (!idle) throw new Error('模型裡找不到 Idle 動作')
-    mixer.clipAction(idle).play()
+    for (const clip of gltf.animations) {
+      const action = mixer.clipAction(clip)
+      // 單次動作播完停在最後一格（見 CLAUDE.md 動作規格表）
+      if (ONCE_CLIPS.has(clip.name)) {
+        action.setLoop(THREE.LoopOnce, 1)
+        action.clampWhenFinished = true
+      }
+      actions[clip.name] = action
+    }
+    play(DEFAULT_CLIP)
 
-    return { clips: gltf.animations.map((c) => c.name) }
+    return { clips: gltf.animations.map((c) => c.name), current: DEFAULT_CLIP }
   })
 
   renderer.setAnimationLoop((time) => {
@@ -105,6 +126,7 @@ export function createGallery(container) {
   return {
     scene,
     ready,
+    play,
     dispose() {
       renderer.setAnimationLoop(null)
       resizeObserver.disconnect()
