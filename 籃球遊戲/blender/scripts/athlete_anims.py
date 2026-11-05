@@ -22,6 +22,7 @@ CONTACT_GAP = -0.003     # 球貼在手上時，手指微微壓進球皮的深�
 PALM_T = 0.016           # 掌心到手骨中線的厚度（縮放前），用來從球的位置推回手腕
 PALM_A = 0.075           # 掌心中央離手腕的距離（縮放前）
 TWIST_SHARE = 0.5        # 手的扭轉有多少比例改由前臂承擔（見 Poser.distribute_twist）
+WRIST_MAX_BEND = 75      # 手腕最多彎幾度（見 Poser.limit_wrist）
 # 三威脅的握法：(右手掌在球心的哪個方向, 右手指方向, 左手掌方向, 左手指方向)。
 # 左手指朝前（順著前臂），不朝上，手腕才不會折成 90 度。
 GRIP_TT = (Vector((-0.25, 0.55, 0.75)), Vector((0.1, -1.0, 0.2)), Vector((0.75, -0.55, 0.05)), Vector((-0.35, -1.0, 0.15)))
@@ -108,6 +109,18 @@ class Poser:
         if cur.dot(target) < 0:
             target.negate()
         self.place(name, self.pb[name].head.copy(), cur.slerp(target, w).to_matrix())
+        self.limit_wrist(name)
+
+    def limit_wrist(self, name, max_deg=WRIST_MAX_BEND):
+        """手腕彎曲（手指偏離前臂方向）超過 max_deg 就往前臂方向收回，扭轉保持不變。
+        真人手腕往掌心或手背彎大約 70～80 度就到底，再多看起來像折斷。"""
+        y = V((0, 1, 0))
+        q = self.wrist_local(name)
+        swing = y.rotation_difference(q @ y)
+        if swing.angle <= math.radians(max_deg):
+            return
+        twist = swing.inverted() @ q
+        self.set_wrist_local(name, Quaternion(swing.axis, math.radians(max_deg)) @ twist)
 
     def hold_two(self, B, sR, dR, sL, dL, pose_fn):
         """雙手持球：掌心貼在球面上 sR、sL 方向（從球心指向手掌），手指朝 dR、dL。
@@ -118,7 +131,7 @@ class Poser:
         reach = R_BALL / self.s + PALM_T
         w = {".R": B + sR * reach - dR * PALM_A, ".L": B + sL * reach - dL * PALM_A}
         side = {".R": sR, ".L": sL}
-        for _ in range(6):
+        for _ in range(10):
             pose_fn(w[".R"], w[".L"])
             self.palm("hand.R", dR, -sR)
             self.palm("hand.L", dL, -sL)
