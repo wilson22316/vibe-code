@@ -39,6 +39,36 @@ function toToon(material, gradientMap) {
   return toon
 }
 
+// 描邊：背面放大法，沿法線外推後只畫背面（見 CLAUDE.md）。眼睛、嘴巴、球的接縫不加。
+const OUTLINE_WIDTH = 0.0045
+const OUTLINE_COLOR = 0x4a3326
+const NO_OUTLINE = /Eye|Mouth|Ball_Seam/
+
+function createOutlineMaterial() {
+  const material = new THREE.MeshBasicMaterial({ color: OUTLINE_COLOR, side: THREE.BackSide })
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `vec3 transformed = vec3( position ) + normalize( normal ) * ${OUTLINE_WIDTH.toFixed(4)};`,
+    )
+  }
+  return material
+}
+
+// 描邊網格掛在原網格底下（世界矩陣相同）；骨架網格要用 SkinnedMesh 綁同一副骨架才會跟著動
+function createOutline(mesh, material) {
+  let line
+  if (mesh.isSkinnedMesh) {
+    line = new THREE.SkinnedMesh(mesh.geometry, material)
+    line.bind(mesh.skeleton, mesh.bindMatrix)
+  } else {
+    line = new THREE.Mesh(mesh.geometry, material)
+  }
+  line.frustumCulled = false
+  line.renderOrder = -1
+  return line
+}
+
 const DEFAULT_CLIP = 'Idle'
 const ONCE_CLIPS = new Set(['Shoot'])
 
@@ -139,13 +169,17 @@ export function createGallery(container) {
   const ready = new GLTFLoader().loadAsync(MODEL_URL).then((gltf) => {
     const root = gltf.scene
     const gradientMap = createToonGradient()
-    root.traverse((o) => {
-      if (!o.isMesh) return
+    const outline = createOutlineMaterial()
+    // 先收集再處理，免得 traverse 走進剛加上的描邊網格
+    const meshes = []
+    root.traverse((o) => o.isMesh && meshes.push(o))
+    for (const o of meshes) {
       o.material = toToon(o.material, gradientMap)
       o.castShadow = true
       // 骨架網格與球的包圍盒不會跟著動作更新，關掉視錐剔除以免動作中途消失
       o.frustumCulled = false
-    })
+      if (!NO_OUTLINE.test(o.material.name)) o.add(createOutline(o, outline))
+    }
     scene.add(root)
 
     // 骨架線不做深度測試，被身體擋住也看得到
