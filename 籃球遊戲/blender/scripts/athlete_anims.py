@@ -1276,8 +1276,109 @@ def make_defense_slide(P):
         P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
 
 
+REB = dict(SEEN=4, LOAD=6, TAKEOFF=8, CATCH=14, LAND=20, ABSORB=23, END=30)
+REB_HEIGHT = 0.40        # 縮放前；起跳高度
+# 頭上接球（雙手在球兩側、手指朝上）與下巴前護球（手肘往外張）的握法，格式同 GRIP_TT
+GRIP_HIGH = (V((-0.95, 0.25, 0.05)), V((-0.1, -0.2, 1.0)), V((0.95, 0.25, 0.05)), V((0.1, -0.2, 1.0)))
+GRIP_CHIN = (V((-0.90, 0.40, 0.0)), V((0.15, -0.3, 1.0)), V((0.90, 0.40, 0.0)), V((-0.15, -0.3, 1.0)))
+
+
+def make_rebound(P):
+    """搶籃板（單次 30 格）：從 Idle 第 0 格開始，屈膝蓄力、雙手往後擺，第 8 格雙腳起跳，
+    雙手往上伸，第 14 格（0.58 s，最高點）在頭上接住從上方落下的球，下落時把球收到下巴前（手肘往外護球），
+    第 20 格雙腳落地緩衝，第 30 格移到三威脅位置，結束姿勢與 TripleThreat 第 0 格相同。原地動作，不推動。"""
+    P.new_action("Rebound")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    R0, L0 = P.ankle_rest(".R"), P.ankle_rest(".L")
+    aR_tt, aL_tt = R0 + V((-0.10, 0.07, 0)), L0 + V((0.10, -0.07, 0))   # 落地成三威脅站姿
+
+    def jump(f):
+        if not REB["TAKEOFF"] <= f <= REB["LAND"]:
+            return 0.0
+        u = (f - REB["TAKEOFF"]) / (REB["LAND"] - REB["TAKEOFF"])
+        return 4 * REB_HEIGHT * u * (1 - u)
+
+    def feet(f):                                         # 回傳 (右踝, 左踝, 腳尖下壓)
+        J = V((0, 0, jump(f)))
+        if f <= REB["TAKEOFF"]:
+            return R0, L0, 0.0
+        if f >= REB["LAND"]:
+            return aR_tt, aL_tt, 0.0
+        u = (f - REB["TAKEOFF"]) / (REB["LAND"] - REB["TAKEOFF"])
+        tuck = V((0, 0, 0.06 * math.sin(math.pi * u)))   # 空中腳微微收起
+        toe = 0.5 * math.sin(math.pi * min(1.0, u * 1.3))
+        return R0.lerp(aR_tt, ease(u)) + J + tuck, L0.lerp(aL_tt, ease(u)) + J + tuck, toe
+
+    hipsK = [(0, V((0, 0, -0.012))), (REB["LOAD"], V((0, 0.06, -0.26))), (REB["TAKEOFF"], V((0, 0.02, -0.06))),
+             (REB["CATCH"], V((0, 0.0, -0.04))), (REB["LAND"], V((0, 0.03, -0.12))), (REB["ABSORB"], V((0, 0.04, -0.24))),
+             (REB["END"], V((0, 0.02, -0.19)))]
+    leanK = [(0, V((0, 0, 0))), (REB["LOAD"], V((0.22, 0.10, 0.04))), (REB["TAKEOFF"], V((0.05, 0.02, 0.0))),
+             (REB["CATCH"], V((-0.04, 0.0, 0.0))), (REB["LAND"], V((0.10, 0.06, 0.03))), (REB["ABSORB"], V((0.18, 0.10, 0.05))),
+             (REB["END"], V((0.14, 0.10, 0.05)))]
+    headK = [(0, 0.02), (REB["LOAD"], -0.25), (REB["CATCH"], -0.30), (REB["LAND"], -0.15), (REB["END"], -0.22)]
+    # 手肘：Idle 朝後 → 往後擺 → 舉高時朝外 → 護球時朝外下方 → 三威脅
+    poleRK = [(0, V((-0.35, 1.0, -0.25))), (REB["LOAD"], V((-0.3, 1.0, -0.3))), (12, V((-0.9, 0.1, -0.3))),
+              (REB["LAND"], V((-0.7, 0.2, -0.7))), (REB["ABSORB"], V((-0.7, 0.2, -0.7))), (REB["END"], V((-0.6, 0.8, -0.3)))]
+    poleLK = [(0, V((0.35, 1.0, -0.25))), (REB["LOAD"], V((0.3, 1.0, -0.3))), (12, V((0.9, 0.1, -0.3))),
+              (REB["LAND"], V((0.7, 0.2, -0.7))), (REB["ABSORB"], V((0.7, 0.2, -0.7))), (REB["END"], V((0.6, 0.6, -0.6)))]
+    # 球心（不含跳躍高度）：頭上接住 → 下巴前 → 三威脅
+    B_high, B_chin, B_tt = V((-0.02, -0.28, 1.92)), V((-0.02, -0.30, 1.40)), V((-0.22, -0.25, 0.96))
+    B_absorb = V((-0.02, -0.36, 1.27))                   # 落地屈膝時下巴跟著往下、往前
+    idleR, idleL = V((-0.215, -0.03, 0.85)), V((0.215, -0.03, 0.85))
+    backR, backL = V((-0.24, 0.14, 0.82)), V((0.24, 0.14, 0.82))   # 蓄力時手往後擺
+
+    def pose_body(f, wR, wL):
+        aR, aL, toe = feet(f)
+        P.pose(f"RB{f}", smooth_pts(f, hipsK) + V((0, 0, jump(f))), tuple(smooth_pts(f, leanK)), smooth_pts(f, headK),
+               wR, wL, aR, aL, poleR=smooth_pts(f, poleRK), poleL=smooth_pts(f, poleLK), footR=toe, footL=toe)
+
+    sR, sL = GRIP_HIGH[0].normalized(), GRIP_HIGH[2].normalized()
+    dR = (GRIP_HIGH[1] - sR * GRIP_HIGH[1].dot(sR)).normalized()
+    dL = (GRIP_HIGH[3] - sL * GRIP_HIGH[3].dot(sL)).normalized()
+    reach = R_BALL / P.s + PALM_T
+    v_catch = V((0, 1.2, -3.6))                          # 接球瞬間球的速度：從籃框往下、往球員這邊落
+    for f in range(REB["END"] + 1):
+        J = V((0, 0, jump(f)))
+        Bc = B_high + Z + V((0, 0, jump(REB["CATCH"])))  # 接球點（最高點）
+        if f < REB["CATCH"]:
+            margin = 0.05 + 0.08 * (REB["CATCH"] - f) / (REB["CATCH"] - REB["LOAD"])   # 球從上方落進兩手之間，接住前手要比球寬
+            tR = Bc + sR * (reach + margin) - dR * PALM_A
+            tL = Bc + sL * (reach + margin) - dL * PALM_A
+            if f <= REB["LOAD"]:                         # 雙手往後擺
+                k = ease(f / REB["LOAD"])
+                wR, wL = (idleR + Z).lerp(backR + Z, k), (idleL + Z).lerp(backL + Z, k)
+                kh = 0.0
+            else:                                        # 雙手往上伸到接球點
+                k = ease(min(1.0, (f - REB["LOAD"]) / (12 - REB["LOAD"])))
+                wR, wL = (backR + Z + J).lerp(tR, k), (backL + Z + J).lerp(tL, k)
+                kh = k
+            pose_body(f, wR, wL)
+            P.palm("hand.R", dR, -sR, kh)
+            P.palm("hand.L", dL, -sL, kh)
+            if f < REB["SEEN"]:                          # 球還沒進畫面
+                P.key(f + 1, Bc + V((0, -0.6, 1.0)), 0.0)
+            else:                                        # 球從籃框往下落到手上
+                tau = (REB["CATCH"] - f) / FPS
+                P.key(f + 1, Bc - v_catch * tau + V((0, 0, -4.9 * tau * tau)))
+            continue
+        if f <= REB["LAND"]:                             # 下落時把球收到下巴前
+            u = ease((f - REB["CATCH"]) / (REB["LAND"] - REB["CATCH"]))
+            B = B_high.lerp(B_chin, u) + J
+            g = [a.lerp(b, u) for a, b in zip(GRIP_HIGH, GRIP_CHIN)]
+        elif f <= REB["ABSORB"]:                         # 落地緩衝，球護在下巴前
+            B = B_chin.lerp(B_absorb, ease((f - REB["LAND"]) / (REB["ABSORB"] - REB["LAND"])))
+            g = list(GRIP_CHIN)
+        else:                                            # 移到三威脅位置
+            u = ease((f - REB["ABSORB"]) / (REB["END"] - REB["ABSORB"]))
+            B = B_absorb.lerp(B_tt, u)
+            g = [a.lerp(b, u) for a, b in zip(GRIP_CHIN, GRIP_TT)]
+        P.hold_two(B + Z, g[0], g[1], g[2], g[3], lambda wR, wL: pose_body(f, wR, wL))
+        P.key(f + 1, B + Z)
+
+
 CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot",
-         "Layup", "Pass", "Catch", "Defense", "DefenseSlide")
+         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound")
 
 
 def build_all(rig, ball, off, scale):
@@ -1301,6 +1402,7 @@ def build_all(rig, ball, off, scale):
     make_catch(P)
     make_defense(P)
     make_defense_slide(P)
+    make_rebound(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
