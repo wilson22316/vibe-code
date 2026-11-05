@@ -658,7 +658,84 @@ def make_stop_jump(P):
     MOVE_SPEEDS["StopJump"] = v0                         # 第 STOP_LAND 格前的推動速度；之後見 STOP_*
 
 
-CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump")
+SET_RELEASE, SET_END = 14, 30
+
+
+def flick_axes(rel, end, g, snap_frames=3, hold_until=7, turn_frames=6):
+    """出手後的壓腕：只繞手腕屈曲軸（手指往掌心那側）轉，不繞前臂扭轉。
+    rel、end：出手時與結束時的（手指方向, 掌心方向）；g：出手後第幾格。
+    前 snap_frames 格快速壓腕約 150°，維持到 hold_until，之後 turn_frames 格轉到結束姿勢的角度。"""
+    d0, n0 = rel
+    a = d0.cross(n0).normalized()
+    de = end[0] - a * end[0].dot(a)
+    th_end = math.atan2(d0.cross(de).dot(a), d0.dot(de)) % (2 * math.pi)
+    th_snap = min(math.radians(150), th_end)
+    th = th_snap * ease(min(1.0, g / snap_frames)) + \
+        (th_end - th_snap) * ease(min(1.0, max(0.0, (g - hold_until) / turn_frames)))
+    rot = Matrix.Rotation(th, 3, a)
+    return rot @ d0, rot @ n0
+
+
+def make_set_shot(P):
+    """定點投籃（單次 30 格）：從 TripleThreat 第 0 格開始，屈膝收球 → 球舉到額頭前上方 → 伸膝伸手，
+    第 14 格出手（雙腳不離地）→ 壓腕停留 → 雙手放下、站直。出手後球縮放為 0。"""
+    P.new_action("SetShot")
+    Z = P.Z
+    aR = P.ankle_rest(".R") + V((-0.10, 0.07, 0))       # 三威脅站姿，整段腳不動
+    aL = P.ankle_rest(".L") + V((0.10, -0.07, 0))
+    grip_tt = (V((-0.25, 0.55, 0.75)), V((0.1, -1.0, 0.2)), V((0.75, -0.55, 0.05)), V((0, -0.2, 1.0)))
+    grip_shot = (V((0.05, 0.45, -0.89)), V((0, 0.9, 0.45)), V((1.0, -0.1, 0.05)), V((0, -0.1, 1.0)))
+    # 影格, 臀部位移, 前傾, 頭, 球心, 右手腕, 左手腕（出手後才用手腕；出手前由 hold_two 依球決定）
+    K = [(0, V((0, 0.02, -0.19)), V((0.14, 0.10, 0.05)), -0.22, V((-0.22, -0.25, 0.96)), None, None),
+         (5, V((0, 0.02, -0.25)), V((0.10, 0.06, 0.03)), -0.14, V((-0.10, -0.27, 1.06)), None, None),
+         (10, V((0, 0.00, -0.13)), V((0.02, 0.00, 0.00)), -0.10, V((-0.07, -0.20, 1.70)), None, None),
+         (SET_RELEASE, V((0, 0.00, -0.03)), V((-0.02, 0.0, 0.0)), -0.12, V((-0.07, -0.22, 1.93)), None, None),
+         (17, V((0, 0.00, -0.04)), V((0.0, 0.0, 0.0)), -0.10, None, V((-0.09, -0.32, 1.74)), V((0.24, -0.14, 1.46))),
+         (22, V((0, 0.00, -0.05)), V((0.0, 0.0, 0.0)), -0.06, None, V((-0.10, -0.34, 1.70)), V((0.26, -0.10, 1.10))),
+         (SET_END, V((0, 0.01, -0.07)), V((0.02, 0.01, 0.0)), 0.0, None, V((-0.22, -0.04, 0.86)), V((0.22, -0.04, 0.86)))]
+    pick = lambda i: [(k[0], k[i]) for k in K if k[i] is not None]
+    hipsK, leanK, headK, ballK, wRK, wLK = pick(1), pick(2), pick(3), pick(4), pick(5), pick(6)
+
+    def pose_body(f, wR, wL):
+        P.pose(f"P{f}", smooth_pts(f, hipsK), tuple(smooth_pts(f, leanK)), smooth_pts(f, headK), wR, wL, aR, aL,
+               # 右手肘從朝後轉到朝前下方，中途經過朝外下方（直接內插會在中途接近 0 而突然翻轉）
+               poleR=smooth_pts(f, [(0, V((-0.6, 0.8, -0.3))), (5, V((-0.9, 0.0, -0.5))), (10, V((-0.12, -1.0, -0.1)))]),
+               poleL=V((0.6, 0.6, -0.6)).lerp(V((0.7, -0.2, -0.4)), ease(min(1.0, f / 10))))
+
+    def hand_axes(name):
+        m = P.pb[name].matrix.to_3x3()
+        return m.col[1].copy(), -m.col[2].copy()
+
+    pose_body(SET_END, wRK[-1][1] + Z, wLK[-1][1] + Z)    # 先擺出結束姿勢，記下雙手方向
+    end_R = hand_axes("hand.R")
+    end_L = P.pb["hand.L"].matrix.to_3x3().to_quaternion()
+    B_rel = rel_R = rel_L = rel_wR = rel_wL = None
+    for f in range(SET_END + 1):
+        if f <= SET_RELEASE:
+            B = smooth_pts(f, ballK) + Z
+            w = ease(min(1.0, f / 6))                       # 握法從三威脅換成投籃（右手托在球後下方）
+            g = [a.lerp(b, w) for a, b in zip(grip_tt, grip_shot)]
+            P.hold_two(B, g[0], g[1], g[2], g[3], lambda wR, wL: pose_body(f, wR, wL))
+            B_rel, rel_R = B, hand_axes("hand.R")
+            rel_L = P.pb["hand.L"].matrix.to_3x3().to_quaternion()
+            rel_wR, rel_wL = P.pb["hand.R"].head.copy(), P.pb["hand.L"].head.copy()
+            P.key(f + 1, B)
+            continue
+        gf = f - SET_RELEASE
+        # 出手後手腕從出手時的位置接到收尾的關鍵影格
+        wR = smooth_pts(f, [(SET_RELEASE, rel_wR)] + [(k, v + Z) for k, v in wRK])
+        wL = smooth_pts(f, [(SET_RELEASE, rel_wL)] + [(k, v + Z) for k, v in wLK])
+        pose_body(f, wR, wL)
+        d, n = flick_axes(rel_R, end_R, gf, hold_until=8, turn_frames=6)
+        P.palm("hand.R", d, n, 1 - min(1.0, max(0.0, (f - (SET_END - 3)) / 3)))
+        qL = end_L.copy()
+        if rel_L.dot(qL) < 0:
+            qL.negate()
+        P.place("hand.L", P.pb["hand.L"].head.copy(), rel_L.slerp(qL, ease(gf / (SET_END - SET_RELEASE))).to_matrix())
+        P.key(f + 1, B_rel + V((0, -4.5, 5.4)) * (gf / FPS), 0.0)   # 球沿出手方向飛走（隱藏），縮小時不會掃過手
+
+
+CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot")
 
 
 def build_all(rig, ball, off, scale):
@@ -676,6 +753,7 @@ def build_all(rig, ball, off, scale):
     make_run(P, "Run", N=12, S=0.34, Y=0.30, lift=0.24, toe=0.50, hips_z=-0.12, bob=0.025,
              lean=(0.16, 0.07, 0.03), head=-0.15, arm_y=0.24, arm_z=-0.12)
     make_stop_jump(P)
+    make_set_shot(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
