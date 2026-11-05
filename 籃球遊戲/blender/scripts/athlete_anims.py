@@ -1221,8 +1221,63 @@ def make_catch(P):
         P.key(f + 1, B + Z)
 
 
+def defense_arms(P, wR, wL):
+    """防守的手：手指順著前臂（略往外），掌心朝前（擋傳球、干擾視線）。"""
+    for sfx, side in ((".R", -1), (".L", 1)):
+        fore = P.pb["forearm" + sfx].matrix.col[1].to_3d()
+        P.palm("hand" + sfx, fore + V((0.3 * side, 0, 0.2)), V((0.25 * side, -1.0, 0.0)))
+
+
+def make_defense(P):
+    """防守站姿（循環 24 格）：雙腳比肩寬、左腳略前，深蹲、上身挺直、抬頭看前方；
+    左手舉高（干擾投籃）、右手往外低伸（擋傳球路線），身體輕微上下彈動。原地，無球。"""
+    P.new_action("Defense")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    aR = P.ankle_rest(".R") + V((-0.16, 0.05, 0))
+    aL = P.ankle_rest(".L") + V((0.16, -0.05, 0))
+    for f in range(25):
+        t = f / 24
+        c, sn = math.cos(4 * math.pi * t), math.sin(2 * math.pi * t)
+        wR = V((-0.48, -0.20, 1.02 + 0.02 * sn)) + Z
+        wL = V((0.26, -0.22, 1.64 - 0.03 * sn)) + Z
+        P.pose(f"D{f}", V((0, 0.10, -0.26 - 0.012 * c)), (0.24, 0.08, 0.0), -0.30, wR, wL, aR, aL,
+               poleR=V((-0.4, 0.6, -0.7)), poleL=V((0.9, 0.0, -0.4)))
+        defense_arms(P, wR, wL)
+        P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
+
+
+def make_defense_slide(P):
+    """防守側滑步（循環 12 格，兩步）：防守站姿往左邊（+X）滑，左腳先跨、右腳跟上，雙腳不交叉；
+    雙手往兩側張開、掌心朝前。原地循環，遊戲以 MOVE_SPEEDS["DefenseSlide"] 往角色左邊推動。"""
+    P.new_action("DefenseSlide")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    N = 12
+    cycle, speed = gait(N, 0.5, -0.17, 0.17, lift=0.05, toe=0.10)
+    MOVE_SPEEDS["DefenseSlide"] = speed
+
+    def side(ph, base):                                  # gait 的前後換成左右：著地時腳往右（-X）移
+        a, r = cycle(ph, V((0, 0, 0)))
+        return base + V((-a.y, 0, a.z)), r
+
+    baseR = P.ankle_rest(".R") + V((-0.17, 0.02, 0))
+    baseL = P.ankle_rest(".L") + V((0.17, -0.02, 0))
+    for f in range(N + 1):
+        t = f / N
+        aR, _ = side((t + 0.5) % 1.0, baseR)
+        aL, _ = side(t % 1.0, baseL)
+        c = math.cos(4 * math.pi * t)
+        wR = V((-0.46, -0.22, 1.08 + 0.01 * c)) + Z
+        wL = V((0.46, -0.22, 1.08 + 0.01 * c)) + Z
+        P.pose(f"DS{f}", V((0.01 * math.sin(2 * math.pi * t), 0.10, -0.25 - 0.012 * c)), (0.24, 0.08, 0.0), -0.30,
+               wR, wL, aR, aL, poleR=V((-0.4, 0.6, -0.7)), poleL=V((0.4, 0.6, -0.7)))
+        defense_arms(P, wR, wL)
+        P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
+
+
 CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot",
-         "Layup", "Pass", "Catch")
+         "Layup", "Pass", "Catch", "Defense", "DefenseSlide")
 
 
 def build_all(rig, ball, off, scale):
@@ -1244,6 +1299,8 @@ def build_all(rig, ball, off, scale):
     make_layup(P)
     make_pass(P)
     make_catch(P)
+    make_defense(P)
+    make_defense_slide(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
