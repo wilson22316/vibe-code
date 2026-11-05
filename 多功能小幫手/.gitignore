@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller / 打包暫存與建置輸出目錄
+build/
+dist/
+dist_temp/
+*.spec
+*.manifest
+
+# 執行檔 (二進位大型檔案，避免 Git 儲存庫肥大)
+*.exe
+
+# 本地應用程式資料 (使用者個人喝水紀錄、打怪清單、打卡資料)
+app_data.json
+
+# Python 虛擬環境
+.venv/
+venv/
+env/
+ENV/
+
+# IDE / 編輯器暫存
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 作業系統產生的檔案
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# 日誌與臨時檔案
+*.log
+*.tmp
