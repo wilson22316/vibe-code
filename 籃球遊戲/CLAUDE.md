@@ -36,12 +36,14 @@ D:\Blender\blender.exe --background --python blender\scripts\build_athlete.py --
 
 ## 角色規格
 
-- 座標：Blender 為 Z 軸朝上、角色面向 -Y；匯出 glTF 後為 Y 軸朝上、角色面向 +Z。原點在腳底，單位公尺。
+- 座標：Blender 為 Z 軸朝上、角色面向 -Y；匯出 glTF 後為 Y 軸朝上、角色面向 +Z。原點在鞋底最低點，單位公尺。
 - 尺寸：身高 1.70 m、頭長（下巴到頭頂）24 cm、脖子正面露出 5 cm。
   - 腳本先以約 1.80 m 建模與做動作，匯出前 `build_athlete.py` 把骨架整體縮到 `TARGET_HEIGHT`（倍數約 0.948，存在骨架物件的 scale）。
   - 籃球不縮（半徑仍 0.12），只縮放球的移動路徑，並修正高度讓球著地時剛好碰地。
   - 頭與脖子在縮放前用 `HEAD_SCALE`、`HEAD_DROP` 調整（`athlete_model.py` 開頭）。
   - 動作腳本裡的座標都是縮放前的數值。
+  - 身高以赤腳量（不含鞋底）。鞋底比腳底低約 6.6 mm，`athlete_model.py` 建好後整體上移 `SOLE_LIFT`，讓鞋底貼地。
+  - 球不縮，相對角色會變大。持球的影格由腳本依手的實際頂點位置把球貼上（`Poser.seat`，已把縮放算進去），手壓進球 3 mm（`CONTACT_GAP`）。
 - 角色約 41,700 個三角形，籃球約 3,300 個。整個 .glb 約 1.5 MB。
 - `athlete_model.py` 換成 `籃球遊戲_gemini` 版本的模型（臉、頭髮、身形較寫實），再補上尺寸設定。
 - 頭部零件（頭、五官、頭髮）完全綁在 `head`；球鞋前段綁 `toe`、其餘綁 `foot`；身體用自動權重。

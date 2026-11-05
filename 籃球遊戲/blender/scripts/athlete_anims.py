@@ -17,6 +17,9 @@ from mathutils import Matrix, Vector
 FPS = 24
 R_BALL = 0.12
 SHOOT_RELEASE_FRAME = 18
+CONTACT_GAP = -0.003     # 球貼在手上時，手指微微壓進球皮的深度（匯出縮放後的公尺）
+PALM_T = 0.016           # 掌心到手骨中線的厚度（縮放前），用來從球的位置推回手腕
+PALM_A = 0.075           # 掌心中央離手腕的距離（縮放前）
 SPRINT_SPEED = None   # 由 make_sprint() 依步幅計算後填入（縮放前 3.0 m/s；匯出縮放後約 2.84 m/s，見 build_athlete.py）
 
 V = Vector
@@ -25,9 +28,10 @@ V = Vector
 class Poser:
     """把「手腕、腳踝要放在哪裡」轉換成骨頭旋轉的工具。座標一律是 Blender 世界座標。"""
 
-    def __init__(self, rig, ball, off):
+    def __init__(self, rig, ball, off, scale):
         self.rig, self.ball, self.off = rig, ball, off
         self.Z = V((0, 0, off))
+        self.floor = R_BALL - off           # 球放在地上時的球心高度（之後會再加上 Z）
         self.pb = rig.pose.bones
         for p in self.pb:
             p.rotation_mode = 'QUATERNION'
@@ -35,6 +39,61 @@ class Poser:
         self.blen = {b.name: b.length for b in rig.data.bones}
         self.unreachable = []
         self._prevq = {}
+        # 匯出前角色縮 scale 倍、球不縮，球心高度改成 scale * z + (1 - scale) * R_BALL。
+        # 換回縮放前的座標，球等於往上移 lift、半徑變成 R_BALL / scale。
+        self.s = scale
+        self.ball_lift = V((0, 0, (1 - scale) * R_BALL / scale))
+        self.body = next(c for c in rig.children if c.type == 'MESH')
+        self.hand_idx = {sfx: self._verts_of({"hand" + sfx, "fingers" + sfx, "thumb" + sfx}) for sfx in (".R", ".L")}
+
+    def _verts_of(self, groups):
+        """主要權重落在 groups 裡的頂點。"""
+        names = {g.index: g.name for g in self.body.vertex_groups}
+        idx = []
+        for v in self.body.data.vertices:
+            if v.groups and names[max(v.groups, key=lambda g: g.weight).group] in groups:
+                idx.append(v.index)
+        return idx
+
+    def hand_points(self, sides):
+        """目前姿勢下，手（含手指）頂點的世界座標。"""
+        dg = bpy.context.evaluated_depsgraph_get()
+        ev = self.body.evaluated_get(dg)
+        me = ev.to_mesh()
+        mw = self.body.matrix_world
+        pts = [mw @ me.vertices[i].co for sfx in sides for i in self.hand_idx[sfx]]
+        ev.to_mesh_clear()
+        return pts
+
+    def seat(self, B, d, sides=(".R",)):
+        """沿 d 方向移動球心，讓球剛好貼在手上（壓進 CONTACT_GAP）。原本有空隙會拉近、陷進去會推開。"""
+        d = d.normalized()
+        rho = (R_BALL + CONTACT_GAP) / self.s
+        Bp = B + self.ball_lift
+        best = None
+        for p in self.hand_points(sides):
+            w = p - Bp
+            t = w.dot(d)
+            perp2 = w.length_squared - t * t
+            if perp2 < rho * rho:
+                x = t + math.sqrt(rho * rho - perp2)
+                best = x if best is None else max(best, x)
+        return B if best is None else B + d * best
+
+    def gap(self, B, sides):
+        """手與球表面最近的距離（匯出縮放後的公尺；負數是陷進球裡）。"""
+        Bp = B + self.ball_lift
+        return min((p - Bp).length for p in self.hand_points(sides)) * self.s - R_BALL
+
+    def palm(self, name, direction, toward, w=1.0):
+        """把手轉成手指朝 direction、掌心（手骨 -Z 軸）朝 toward；w 是和目前方向的混合比例。"""
+        y = direction.normalized()
+        z = -(toward - y * toward.dot(y)).normalized()
+        target = Matrix((y.cross(z), y, z)).transposed().to_quaternion()
+        cur = self.pb[name].matrix.to_3x3().to_quaternion()
+        if cur.dot(target) < 0:
+            target.negate()
+        self.place(name, self.pb[name].head.copy(), cur.slerp(target, w).to_matrix())
 
     # ---- 基本操作
     def _upd(self):
@@ -148,22 +207,33 @@ def make_dribble(P):
     aR0 = P.ankle_rest(".R") + V((-0.06, 0.07, 0))
     aL0 = P.ankle_rest(".L") + V((0.06, -0.08, 0))
     HZ = [(0.0, 0.98), (0.25, 0.86), (0.60, 1.00), (0.85, 1.00), (1.0, 0.98)]   # 右手腕高度
-    z0, z1 = 0.98 - 0.145, 0.86 - 0.145
+    BX, BY = -0.30, -0.355
+    T_PUSH, T_FLOOR = 0.25, 13 / 24          # 手推到 0.25 放球；落地放在整數影格（第 13 格），關鍵影格才取得到
+
+    def pose_at(t):
+        P.pose(f"D{t:.3f}", V((0, -0.03, -0.150 - 0.012 * math.sin(2 * math.pi * t))), (0.10, 0.10, 0.06), 0.18,
+               V((BX, -0.30, smooth_pts(t, HZ))) + Z, V((0.33, -0.16, 1.08 + 0.01 * math.sin(2 * math.pi * t))) + Z,
+               aR0, aL0, handR_dir=V((0, -1.0, -0.25)))
+
+    def held():                                          # 球從正下方貼住目前姿勢的右手
+        return P.seat(V((BX, BY, 0.8)) + Z, V((0, 0, -1))).z - Z.z
+
+    pose_at(0.0)
+    z0 = held()
+    pose_at(T_PUSH)
+    z1 = held()
     for f in range(25):
         t = f / 24.0
-        hz = smooth_pts(t, HZ)
-        if t <= 0.25:                                    # 手壓著球往下推
-            zb = hz - 0.145
-        elif t <= 0.55:                                  # 球加速落地
-            s = (t - 0.25) / 0.30
-            zb = z1 - (z1 - R_BALL) * s * s
+        pose_at(t)
+        if t <= T_PUSH:                                  # 手壓著球往下推
+            zb = held()
+        elif t <= T_FLOOR:                               # 球加速落地
+            s = (t - T_PUSH) / (T_FLOOR - T_PUSH)
+            zb = z1 - (z1 - P.floor) * s * s
         else:                                            # 反彈減速回到手上
-            u = (t - 0.55) / 0.45
-            zb = R_BALL + (z0 - R_BALL) * (1 - (1 - u) ** 2)
-        P.pose(f"D{f}", V((0, -0.03, -0.150 - 0.012 * math.sin(2 * math.pi * t))), (0.10, 0.10, 0.06), 0.18,
-               V((-0.30, -0.30, hz)) + Z, V((0.33, -0.16, 1.08 + 0.01 * math.sin(2 * math.pi * t))) + Z,
-               aR0, aL0, handR_dir=V((0, -1.0, -0.25)))
-        P.key(f + 1, V((-0.30, -0.355, zb)) + Z)
+            u = (t - T_FLOOR) / (1 - T_FLOOR)
+            zb = P.floor + (z0 - P.floor) * (1 - (1 - u) ** 2)
+        P.key(f + 1, V((BX, BY, zb)) + Z)
 
 
 def make_idle(P):
@@ -176,7 +246,7 @@ def make_idle(P):
                # 手自然垂在大腿外側、稍微在大腿中線前面（參考一般人放鬆站姿）
                V((-0.215, -0.03, 0.85 + 0.006 * sw)) + Z, V((0.215, -0.03, 0.85 + 0.006 * sw)) + Z,
                P.ankle_rest(".R"), P.ankle_rest(".L"), breath=-0.02 * sw)
-        P.key(f + 1, V((-0.34, -0.22, R_BALL)) + Z)
+        P.key(f + 1, V((-0.34, -0.22, P.floor)) + Z)
 
 
 def make_shoot(P):
@@ -205,14 +275,49 @@ def make_shoot(P):
                 return (L(a[1], b[1]), tuple(L(x, y) for x, y in zip(a[2], b[2])), L(a[3], b[3]), L(a[4], b[4]),
                         L(a[5], b[5]), L(a[6], b[6]), a[7].lerp(b[7], s), L(a[8], b[8]), a[9].lerp(b[9], s), a[10].lerp(b[10], s))
 
+    def ramp(f, a, b, c, d):                             # a→b 從 0 升到 1，c→d 降回 0
+        return max(0.0, min(1.0, (f - a) / (b - a), (d - f) / (d - c)))
+
+    up = V((0, 0, 1))
+    B_release = None
     for f in range(31):
         hd, ln, ht, bl, wR, wL, hR, lift, pR, pL = interp(f)
         w = min(1.0, f / 6.0) if f <= 10 else (1.0 if f <= 25 else 1.0 - (f - 25) / 5.0)
         aR = aR0.lerp(aRs, w) + V((0, 0, lift))
         aL = aL0.lerp(aLs, w) + V((0, 0, lift))
         toe = 0.55 * (lift / 0.14)                       # 離地時腳尖朝下
-        P.pose(f"S{f}", hd, ln, ht, wR + Z, wL + Z, aR, aL, handR_dir=hR, poleR=pR, poleL=pL, footR=toe, footL=toe)
-        P.key(f + 1, bl + Z, 1.0 if f <= SHOOT_RELEASE_FRAME else 0.0)
+        B, wristR, wristL = bl + Z, wR + Z, wL + Z
+        # 右手托球：掌心朝球、手指沿著球面，手腕從球的位置推回去。第 0 格和 Dribble 一樣（手壓在球上）。
+        kR = ramp(f, 0, 4, SHOOT_RELEASE_FRAME, SHOOT_RELEASE_FRAME + 3)
+        nR = (B - wristR).normalized()
+        dR = (hR - nR * hR.dot(nR)).normalized()
+        wristR = wristR.lerp(B - nR * (R_BALL / P.s + PALM_T) - dR * PALM_A, kR)
+        # 左手扶在球側：掌心朝球，手指朝上
+        kL = ramp(f, 3, 6, SHOOT_RELEASE_FRAME, SHOOT_RELEASE_FRAME + 3)
+        sL = (wristL - B).normalized()
+        dL = (up - sL * up.dot(sL)).normalized()
+
+        def do_pose(wl):
+            P.pose(f"S{f}", hd, ln, ht, wristR, wl, aR, aL, handR_dir=hR, poleR=pR, poleL=pL, footR=toe, footL=toe)
+            P.palm("hand.R", dR, nR, kR)
+            P.palm("hand.L", dL, -sL, kL)
+
+        do_pose(wristL)
+        if f <= SHOOT_RELEASE_FRAME:
+            B = P.seat(B, V((0, 0, -1)).lerp(nR, kR))   # 球貼在右手掌上
+            if kL > 0:
+                wristL = wristL.lerp(B + sL * (R_BALL / P.s + PALM_T) - dL * PALM_A, kL)
+                do_pose(wristL)
+                for _ in range(4):                       # 左手還陷在球裡就沿 sL 往外移
+                    g = P.gap(B, (".L",))
+                    if g >= CONTACT_GAP - 0.002:
+                        break
+                    wristL = wristL + sL * ((CONTACT_GAP - g) / P.s)
+                    do_pose(wristL)
+            B_release = B
+        else:
+            B = B_release                                # 出手後球停在出手位置，縮小消失時才不會掃過手
+        P.key(f + 1, B, 1.0 if f <= SHOOT_RELEASE_FRAME else 0.0)
 
 
 def make_sprint(P):
@@ -222,31 +327,49 @@ def make_sprint(P):
     Z = P.Z
     N, S, YF, YB = 12, 0.40, -0.30, 0.30                 # 影格數、著地比例、腳最前與最後的位置
 
+    # 擺動腳的前後位置用 Hermite 曲線：離地時接著著地的往後速度，落地前一格也已經用著地速度往後收，
+    # 這樣最後一格落地時腳相對地面不動（推動角色時不會往前滑）。M 由「落地前一格」的位置反推。
+    K_ST = -(1 - S) / S                                  # 著地時的速度（以擺動進度為單位）
+    DS = (1 / N) / (1 - S)                               # 一格對應的擺動進度
+    s_last = 1 - DS
+    M = (1 - K_ST * DS - (3 * s_last ** 2 - 2 * s_last ** 3)) / (2 * s_last ** 3 - 3 * s_last ** 2 + s_last)
+
     def foot_cycle(ph, base):
         if ph < S:
             return base + V((0, YF + (YB - YF) * (ph / S), 0)), 0.0
         s = (ph - S) / (1 - S)
-        return base + V((0, YB + (YF - YB) * ease(s), 0.20 * math.sin(math.pi * s) ** 0.8)), 0.45 * math.sin(math.pi * s)
+        h = 3 * s * s - 2 * s ** 3 + M * (2 * s ** 3 - 3 * s * s + s)
+        return base + V((0, YB + (YF - YB) * h, 0.20 * math.sin(math.pi * s) ** 0.8)), 0.45 * math.sin(math.pi * s)
 
     HZs = [(0.0, 0.97), (0.2, 0.86), (0.55, 1.00), (0.85, 1.00), (1.0, 0.97)]
-    zs0, zs1 = 0.97 - 0.145, 0.86 - 0.145
-    for f in range(N + 1):
-        t = f / N
+    T_PUSH, T_FLOOR = 0.2, 7 / 12                        # 落地放在整數影格（第 7 格）
+
+    def pose_at(t):
         aR, rR = foot_cycle(t % 1.0, P.ankle_rest(".R") + V((0.02, 0, 0)))
         aL, rL = foot_cycle((t + 0.5) % 1.0, P.ankle_rest(".L") + V((-0.02, 0, 0)))
-        hz = smooth_pts(t, HZs)
-        if t <= 0.2:
-            zb, yb = hz - 0.145, -0.46
-        elif t <= 0.55:
-            s = (t - 0.2) / 0.35
-            zb, yb = zs1 - (zs1 - R_BALL) * s * s, -0.46 - 0.16 * s
-        else:
-            u = (t - 0.55) / 0.45
-            zb, yb = R_BALL + (zs0 - R_BALL) * (1 - (1 - u) ** 2), -0.62 + 0.16 * u
         swing = math.cos(2 * math.pi * t)
-        P.pose(f"R{f}", V((0, -0.04, -0.10 + 0.02 * math.sin(4 * math.pi * t))), (0.16, 0.08, 0.03), -0.12,
-               V((-0.28, -0.40, hz)) + Z, V((0.26, -0.20 * swing, 1.00 - 0.05 * swing)) + Z,
+        P.pose(f"R{t:.3f}", V((0, -0.04, -0.10 + 0.02 * math.sin(4 * math.pi * t))), (0.16, 0.08, 0.03), -0.12,
+               V((-0.28, -0.40, smooth_pts(t, HZs))) + Z, V((0.26, -0.20 * swing, 1.00 - 0.05 * swing)) + Z,
                aR, aL, handR_dir=V((0, -1.0, -0.3)), poleL=V((0.3, 1.0, -0.3)), footR=rR, footL=rL, twist=0.06 * swing)
+
+    def held():
+        return P.seat(V((-0.28, -0.46, 0.8)) + Z, V((0, 0, -1))).z - Z.z
+
+    pose_at(0.0)
+    zs0 = held()
+    pose_at(T_PUSH)
+    zs1 = held()
+    for f in range(N + 1):
+        t = f / N
+        pose_at(t)
+        if t <= T_PUSH:
+            zb, yb = held(), -0.46
+        elif t <= T_FLOOR:
+            s = (t - T_PUSH) / (T_FLOOR - T_PUSH)
+            zb, yb = zs1 - (zs1 - P.floor) * s * s, -0.46 - 0.16 * s
+        else:
+            u = (t - T_FLOOR) / (1 - T_FLOOR)
+            zb, yb = P.floor + (zs0 - P.floor) * (1 - (1 - u) ** 2), -0.62 + 0.16 * u
         P.key(f + 1, V((-0.28, yb, zb)) + Z)
     SPRINT_SPEED = (YB - YF) / (S * N / FPS)
 
@@ -254,9 +377,10 @@ def make_sprint(P):
 CLIPS = ("Idle", "Dribble", "Shoot", "Sprint")
 
 
-def build_all(rig, ball, off):
+def build_all(rig, ball, off, scale):
+    """scale：匯出前角色要縮的倍數（球不縮），放球時要算進去。"""
     bpy.context.scene.render.fps = FPS
-    P = Poser(rig, ball, off)
+    P = Poser(rig, ball, off, scale)
     make_dribble(P)
     make_idle(P)
     make_shoot(P)

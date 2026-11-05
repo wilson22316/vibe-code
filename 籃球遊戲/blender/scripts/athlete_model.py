@@ -1000,5 +1000,27 @@ def build_model(collection_name="Athlete"):
     shoe_parts = _build_shoes(col, M, off)
     body = _join(shoe_parts, body)
     body.name = "Athlete"
+    off = _lift_to_sole(body, rig, off)
     ball = _build_ball(col, M)
     return body, rig, ball, off
+
+
+# 鞋底比原本對齊地面的腳底低一點；整個角色（網格與骨架）往上移，讓鞋底最低點剛好在地面。
+# 身高仍以赤腳量（build_athlete.py 縮放時扣掉 SOLE_LIFT）。
+SOLE_LIFT = 0.0
+
+
+def _lift_to_sole(body, rig, off):
+    global SOLE_LIFT
+    SOLE_LIFT = max(0.0, -min(v.co.z for v in body.data.vertices))
+    if SOLE_LIFT == 0.0:
+        return off
+    for v in body.data.vertices:
+        v.co.z += SOLE_LIFT
+    _select_only([rig], rig)
+    bpy.ops.object.mode_set(mode='EDIT')
+    for b in rig.data.edit_bones:
+        b.head.z += SOLE_LIFT
+        b.tail.z += SOLE_LIFT
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return off + SOLE_LIFT
