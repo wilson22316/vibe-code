@@ -96,6 +96,25 @@ class Poser:
             target.negate()
         self.place(name, self.pb[name].head.copy(), cur.slerp(target, w).to_matrix())
 
+    def hold_two(self, B, sR, dR, sL, dL, pose_fn):
+        """雙手持球：掌心貼在球面上 sR、sL 方向（從球心指向手掌），手指朝 dR、dL。
+        pose_fn(wristR, wristL) 擺出整個姿勢；手腕位置反覆微調到手剛好壓進球 CONTACT_GAP。"""
+        sR, sL = sR.normalized(), sL.normalized()
+        dR = (dR - sR * dR.dot(sR)).normalized()
+        dL = (dL - sL * dL.dot(sL)).normalized()
+        reach = R_BALL / self.s + PALM_T
+        w = {".R": B + sR * reach - dR * PALM_A, ".L": B + sL * reach - dL * PALM_A}
+        side = {".R": sR, ".L": sL}
+        for _ in range(6):
+            pose_fn(w[".R"], w[".L"])
+            self.palm("hand.R", dR, -sR)
+            self.palm("hand.L", dL, -sL)
+            err = {k: self.gap(B, (k,)) - CONTACT_GAP for k in w}
+            if all(abs(e) < 0.0015 for e in err.values()):
+                break
+            for k, e in err.items():
+                w[k] = w[k] - side[k] * (e / self.s)       # 陷進去（e<0）往外推，有空隙往內收
+
     # ---- 基本操作
     def _upd(self):
         bpy.context.view_layer.update()
@@ -409,7 +428,28 @@ def make_sprint(P):
     SPRINT_SPEED = (YB - YF) / (S * N / FPS)
 
 
-CLIPS = ("Idle", "Dribble", "Shoot", "Sprint")
+def make_triple_threat(P):
+    """持球待機（三威脅）：屈膝、上身前傾、抬頭看前方，雙手持球在右腰前（右手在球後上方、左手扶球前側）。
+    48 格循環，只有輕微的呼吸起伏。"""
+    P.new_action("TripleThreat")
+    Z = P.Z
+    aR = P.ankle_rest(".R") + V((-0.10, 0.07, 0))      # 雙腳比肩寬、右腳略後
+    aL = P.ankle_rest(".L") + V((0.10, -0.07, 0))
+    for f in range(49):
+        t = f / 48.0
+        sw = math.sin(2 * math.pi * t)
+        hips = V((0, 0.02, -0.19 - 0.006 * sw))
+        B = V((-0.22, -0.25, 0.96 - 0.006 * sw)) + Z    # 球在右腰前、貼近身體
+
+        def pose_fn(wR, wL):
+            P.pose(f"T{f}", hips, (0.14, 0.10, 0.05), -0.22, wR, wL, aR, aL,
+                   poleR=V((-0.6, 0.8, -0.3)), poleL=V((0.6, 0.6, -0.6)), breath=-0.015 * sw)
+
+        P.hold_two(B, V((-0.25, 0.55, 0.75)), V((0.1, -1.0, 0.2)), V((0.75, -0.55, 0.05)), V((0, -0.2, 1.0)), pose_fn)
+        P.key(f + 1, B)
+
+
+CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat")
 
 
 def build_all(rig, ball, off, scale):
@@ -420,6 +460,7 @@ def build_all(rig, ball, off, scale):
     make_idle(P)
     make_shoot(P)
     make_sprint(P)
+    make_triple_threat(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
