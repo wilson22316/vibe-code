@@ -1378,8 +1378,97 @@ def make_rebound(P):
         P.key(f + 1, B + Z)
 
 
+def palm_center(P, sfx):
+    """掌心中央的位置與掌心朝的方向（手骨 -Z）。"""
+    m = P.pb["hand" + sfx].matrix
+    return P.pb["hand" + sfx].head + m.col[1].to_3d() * PALM_A, -m.col[2].to_3d().normalized()
+
+
+def held_ball(P, sfx):
+    """球貼在單手掌心上（壓進 CONTACT_GAP）的球心位置。"""
+    c, n = palm_center(P, sfx)
+    return P.seat(c, n, (sfx,))
+
+
+def mirror_x(v):
+    return V((-v.x, v.y, v.z))
+
+
+CROSS = dict(N=24, PUSH=3, FLOOR=6)      # 換手運球：一個循環的影格；半個循環內手推到第 3 格放開、第 6 格落地
+
+
+def make_crossover(P):
+    """換手運球（循環 24 格）：低重心、抬頭，右手把球往左斜拍過身體前方（第 6 格落地），
+    左手第 12 格接住，再往右拍回（第 18 格落地），第 24 格右手接住。
+    沒運球的手往外抬起護球。雙腳不動，重心和肩膀跟著球左右移。原地，不推動。"""
+    P.new_action("Crossover")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    N, PUSH, FLOOR = CROSS["N"], CROSS["PUSH"], CROSS["FLOOR"]
+    H = N // 2
+    aR = P.ankle_rest(".R") + V((-0.12, 0.04, 0))
+    aL = P.ankle_rest(".L") + V((0.12, -0.06, 0))
+    # 右手腕（左手是鏡像、晚半個循環）：接球 → 往內下方推 → 放開後往外抬起護球 → 回到球彈上來的位置上方
+    WR = [(0, V((-0.30, -0.33, 0.95))), (PUSH, V((-0.15, -0.36, 0.80))), (8, V((-0.36, -0.18, 0.98))),
+          (18, V((-0.37, -0.20, 1.00))), (21, V((-0.31, -0.30, 1.00))), (N, V((-0.30, -0.33, 0.95)))]
+    # 持球時手指朝前下方、掌心朝球（從球的外上方往內推）
+    GRIP_DIR, GRIP_TOWARD = V((0.05, -1.0, -0.45)), V((0.50, 0.0, -1.0))
+
+    def grip_w(f):                                       # 右手貼球的比例：放開後 3 格轉成放鬆，接球前 3 格轉回
+        g = f % N
+        if g <= PUSH or g >= N - 3:
+            return 1.0
+        return max(0.0, 1 - (g - PUSH) / 3, (g - (N - 6)) / 3)
+
+    def pose_at(f):
+        t = f / N
+        wR = spline_pts(f % N, WR) + Z
+        wL = mirror_x(spline_pts((f + H) % N, WR)) + Z
+        c = math.cos(2 * math.pi * t)                    # t=0 球在右邊，t=0.5 在左邊
+        P.pose(f"X{f}", V((-0.03 * c, 0.02, -0.22 - 0.01 * math.cos(4 * math.pi * t))), (0.18, 0.10, 0.04), -0.20,
+               wR, wL, aR, aL, poleR=V((-0.5, 0.7, -0.5)), poleL=V((0.5, 0.7, -0.5)), twist=-0.07 * c)
+        for sfx, w, side in ((".R", grip_w(f), 1), (".L", grip_w(f + H), -1)):
+            P.palm("hand" + sfx, P.pb["forearm" + sfx].matrix.col[1].to_3d(), natural_palm(P, sfx))
+            if w > 0:
+                P.palm("hand" + sfx, GRIP_DIR, V((GRIP_TOWARD.x * side, GRIP_TOWARD.y, GRIP_TOWARD.z)), w)
+
+    held = {}                                            # 接球、放開時的球心
+    for f, sfx in ((0, ".R"), (PUSH, ".R"), (H, ".L"), (H + PUSH, ".L")):
+        pose_at(f)
+        held[f] = held_ball(P, sfx)
+    held[N] = held[0]
+    floor = P.floor + Z.z
+
+    def flight(f, f_rel, f_catch):                      # 放開後：往另一側斜拍落地、反彈到另一隻手
+        a, b = held[f_rel], held[f_catch]
+        k = (f - f_rel) / (f_catch - f_rel)
+        xy = a.lerp(b, k) + V((0, -0.07 * math.sin(math.pi * k), 0))   # 水平等速；彈地點在身體前方，避開膝蓋
+        f_floor = f_rel - PUSH + FLOOR
+        if f <= f_floor:
+            s = (f - f_rel) / (f_floor - f_rel)
+            z = a.z - (a.z - floor) * (0.4 * s + 0.6 * s * s)
+        else:
+            u = (f - f_floor) / (f_catch - f_floor)
+            z = floor + (b.z - floor) * (1 - (1 - u) ** 2)
+        return V((xy.x, xy.y, z))
+
+    for f in range(N + 1):
+        pose_at(f)
+        if f <= PUSH:
+            B = held_ball(P, ".R")
+        elif f < H:
+            B = flight(f, PUSH, H)
+        elif f <= H + PUSH:
+            B = held_ball(P, ".L")
+        elif f < N:
+            B = flight(f, H + PUSH, N)
+        else:
+            B = held[N]
+        P.key(f + 1, B)
+
+
 CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot",
-         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound")
+         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound", "Crossover")
 
 
 def build_all(rig, ball, off, scale):
@@ -1404,6 +1493,7 @@ def build_all(rig, ball, off, scale):
     make_defense(P)
     make_defense_slide(P)
     make_rebound(P)
+    make_crossover(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
