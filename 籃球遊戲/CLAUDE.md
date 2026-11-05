@@ -45,6 +45,8 @@ D:\Blender\blender.exe --background --python blender\scripts\build_athlete.py --
   - 身高以赤腳量（不含鞋底）。鞋底比腳底低約 6.6 mm，`athlete_model.py` 建好後整體上移 `SOLE_LIFT`，讓鞋底貼地。
   - 球不縮，相對角色會變大。持球的影格由腳本依手的實際頂點位置把球貼上（`Poser.seat`，已把縮放算進去），手壓進球 3 mm（`CONTACT_GAP`）。
   - 骨架沒有前臂扭轉骨：手繞前臂軸的扭轉有一半改由前臂承擔（`Poser.distribute_twist`），手腕才不會扭成糖果紙。
+  - 沒持球的手掌心朝身體（`Poser.palm_inward`；Sprint、DribbleWalk 的左手，Jog、Run 雙手，StopJump、Layup 開頭的左手）。
+  - 投籃出手後，扶球的左手 5 格內放鬆回直（`LEFT_RELAX`），太慢會維持扶球方向，手臂放下時像手掌外翻。
   - 手腕彎曲（手指偏離前臂方向）最多 75°（`WRIST_MAX_BEND`，`Poser.palm` 自動套用），超過就往前臂方向收回，持球時球再依手的位置貼上。
   - 出手後的收尾：先壓腕停留（世界方向），之後手腕「相對前臂」轉回結束姿勢；放下手臂時手肘經過朝下再轉回朝後，手腕沿身體前方劃弧往下。收尾用 `spline_pts`（經過關鍵點不停頓）；`smooth_pts` 每個關鍵點都會停一下，用在收尾會變成兩段式。直接在世界方向內插或讓手肘停在朝前，手放下時手腕會反折、變成手叉腰。
 - 角色約 41,700 個三角形，籃球約 3,300 個。整個 .glb 約 1.5 MB。

@@ -23,6 +23,7 @@ PALM_T = 0.016           # 掌心到手骨中線的厚度（縮放前），用�
 PALM_A = 0.075           # 掌心中央離手腕的距離（縮放前）
 TWIST_SHARE = 0.5        # 手的扭轉有多少比例改由前臂承擔（見 Poser.distribute_twist）
 WRIST_MAX_BEND = 75      # 手腕最多彎幾度（見 Poser.limit_wrist）
+LEFT_RELAX = 5           # 投籃出手後，扶球的左手幾格內放鬆回直
 # 三威脅的握法：(右手掌在球心的哪個方向, 右手指方向, 左手掌方向, 左手指方向)。
 # 左手指朝前（順著前臂），不朝上，手腕才不會折成 90 度。
 GRIP_TT = (Vector((-0.25, 0.55, 0.75)), Vector((0.1, -1.0, 0.2)), Vector((0.75, -0.55, 0.05)), Vector((-0.35, -1.0, 0.15)))
@@ -99,6 +100,11 @@ class Poser:
         """手與球表面最近的距離（匯出縮放後的公尺；負數是陷進球裡）。"""
         Bp = B + self.ball_lift
         return min((p - Bp).length for p in self.hand_points(sides)) * self.s - R_BALL
+
+    def palm_inward(self, sfx, w=1.0):
+        """沒持球的手：手指順著前臂、掌心朝身體（拇指朝上）。不轉的話會維持靜止姿勢的掌心朝下。"""
+        inward = V((1, 0, 0)) if sfx == ".R" else V((-1, 0, 0))
+        self.palm("hand" + sfx, self.pb["forearm" + sfx].matrix.col[1].to_3d(), inward, w)
 
     def palm(self, name, direction, toward, w=1.0):
         """把手轉成手指朝 direction、掌心（手骨 -Z 軸）朝 toward；w 是和目前方向的混合比例。"""
@@ -471,8 +477,8 @@ def make_shoot(P):
                 hold_R = P.wrist_local("hand.R")
             else:                                        # 手臂收回時，手腕相對前臂慢慢回到結束姿勢
                 P.set_wrist_local("hand.R", slerp_short(hold_R, end_R, ease((g - 10) / (SHOOT_END - SHOOT_RELEASE_FRAME - 10))))
-            # 左手放開球後，用剩下的影格在前臂座標裡慢慢轉回結束姿勢
-            P.set_wrist_local("hand.L", slerp_short(release_L, end_L, ease(g / (SHOOT_END - SHOOT_RELEASE_FRAME))))
+            # 左手放開球後幾格內手腕就放鬆回直（太慢會一直維持扶球的方向，手臂放下時看起來像手掌外翻）
+            P.set_wrist_local("hand.L", slerp_short(release_L, end_L, ease(min(1.0, g / LEFT_RELAX))))
         if f <= SHOOT_RELEASE_FRAME:
             B = P.seat(B, V((0, 0, -1)).lerp(nR, kR))   # 球貼在右手掌上
             if kL > 0:
@@ -531,6 +537,7 @@ def make_sprint(P):
         P.pose(f"R{t:.3f}", V((0, -0.04, -0.10 + 0.02 * math.sin(4 * math.pi * t))), (0.16, 0.08, 0.03), -0.12,
                V((-0.28, -0.40, smooth_pts(t, HZs))) + Z, V((0.26, -0.20 * swing, 1.00 - 0.05 * swing)) + Z,
                aR, aL, handR_dir=V((0, -1.0, -0.3)), poleL=V((0.3, 1.0, -0.3)), footR=rR, footL=rL, twist=0.06 * swing)
+        P.palm_inward(".L")                              # 沒持球的手掌心朝身體
 
     def held():
         return P.seat(V((-0.28, -0.46, 0.8)) + Z, V((0, 0, -1))).z - Z.z
@@ -595,6 +602,7 @@ def make_dribble_walk(P):
                (0.10, 0.07, 0.03), 0.04,
                V((BX, -0.34, smooth_pts(t, HZ))) + Z, V((0.26, -0.06 - 0.12 * c, 0.93 + 0.03 * c)) + Z,
                aR, aL, handR_dir=V((0, -1.0, -0.25)), poleL=V((0.3, 1.0, -0.3)), footR=rR, footL=rL, twist=0.05 * c)
+        P.palm_inward(".L")                              # 沒持球的手掌心朝身體
 
     def held():
         return P.seat(V((BX, BY, 0.8)) + Z, V((0, 0, -1))).z - Z.z
@@ -634,9 +642,8 @@ def make_run(P, name, N, S, Y, lift, toe, hips_z, bob, lean, head, arm_y, arm_z)
                V((-0.24, -0.06 + arm_y * c, 1.00 + arm_z * min(0.0, c))) + Z,
                V((0.24, -0.06 - arm_y * c, 1.00 + arm_z * min(0.0, -c))) + Z,
                aR, aL, poleR=V((-0.3, 1.0, -0.4)), poleL=V((0.3, 1.0, -0.4)), footR=rR, footL=rL, twist=0.05 * c)
-        # 跑步時掌心朝身體（拇指朝上）；不轉的話手會維持靜止姿勢的掌心朝下
-        for hand, fore, inward in (("hand.R", "forearm.R", V((1, 0, 0))), ("hand.L", "forearm.L", V((-1, 0, 0)))):
-            P.palm(hand, P.pb[fore].matrix.col[1].to_3d(), inward)
+        P.palm_inward(".R")                              # 跑步時掌心朝身體
+        P.palm_inward(".L")
         P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
 
 
@@ -709,6 +716,7 @@ def make_stop_jump(P):
         P.pose(f"J{f}", hd, ln, ht, wR, wL, aR, aL, handR_dir=V((0, -1.0, -0.3)),
                poleR=V((-0.35, 1.0, -0.25)).lerp(V((-0.6, 0.8, -0.3)), k),
                poleL=V((0.3, 1.0, -0.3)).lerp(V((0.6, 0.6, -0.6)), k), footR=rR, footL=rL, twist=tw)
+        P.palm_inward(".L")                              # 同 Sprint：左手掌心朝身體，接球前再轉向球
 
     def catch_wrists(B, margin):                         # 雙手張開在球兩側，離球面 margin
         reach = R_BALL / P.s + PALM_T + margin
@@ -773,14 +781,14 @@ def flick_axes(rel, end, g, snap_frames=3, hold_until=7, turn_frames=6, snap_deg
 
 def follow_through(P, g, total, hold, rel_axes, end_axes, end_R, rel_L, end_L, state, snap_deg=150):
     """出手後第 g 格（共 total 格）：右手先壓腕（世界方向）停留到 hold，之後手腕相對前臂轉回結束姿勢；
-    左手從出手時相對前臂的轉動慢慢轉回結束姿勢。state 用來記住停留結束時的手腕轉動。"""
+    左手從出手時相對前臂的轉動，在 LEFT_RELAX 格內轉回結束姿勢（放鬆）。state 用來記住停留結束時的手腕轉動。"""
     if g <= hold:
         d, n = flick_axes(rel_axes, end_axes, g, hold_until=total, snap_deg=snap_deg)
         P.palm("hand.R", d, n)
         state["hold_R"] = P.wrist_local("hand.R")
     else:
         P.set_wrist_local("hand.R", slerp_short(state["hold_R"], end_R, ease((g - hold) / (total - hold))))
-    P.set_wrist_local("hand.L", slerp_short(rel_L, end_L, ease(g / total)))
+    P.set_wrist_local("hand.L", slerp_short(rel_L, end_L, ease(min(1.0, g / LEFT_RELAX))))
 
 
 def make_set_shot(P):
@@ -948,6 +956,8 @@ def make_layup(P):
             sL = grip_tt[2].normalized()
             wL = wL0.lerp(V((-0.28, -0.46, 0.83)) + Z + sL * 0.25, ease(f / 3))
             pose_body(f, V((-0.28, -0.40, 0.97 - 0.02 * f)) + Z, wL)
+            P.palm_inward(".L")                          # 同 Sprint 第 0 格，再慢慢轉成持球的方向
+            P.palm("hand.L", grip_tt[3], -sL, ease(f / 3))
             B = P.seat(V((-0.28, -0.46, 0.8)) + Z, V((0, 0, -1)))
             ballK[0] = (3, (B - Z).lerp(V((-0.18, -0.30, 0.98)), 0.6))   # 收球：球往身體中線拉，左手才搆得到
             P.key(f + 1, B)
