@@ -25,6 +25,7 @@ TWIST_SHARE = 0.5        # 手的扭轉有多少比例改由前臂承擔（見 P
 WRIST_MAX_BEND = 75      # 手腕最多彎幾度（見 Poser.limit_wrist）
 LEFT_RELAX = 5           # 投籃出手後，扶球的左手幾格內放鬆回直
 HINGE_ROLL_L = (120, 87)  # 投籃動作的左手臂：上臂、前臂 X 軸和手肘彎曲軸的角度（量自 Idle），見 Poser.two_bone
+HINGE_ROLL_R = (-120, -87)  # 右手臂（左手鏡像）
 # 三威脅的握法：(右手掌在球心的哪個方向, 右手指方向, 左手掌方向, 左手指方向)。
 # 左手指朝前（順著前臂），不朝上，手腕才不會折成 90 度。
 GRIP_TT = (Vector((-0.25, 0.55, 0.75)), Vector((0.1, -1.0, 0.2)), Vector((0.75, -0.55, 0.05)), Vector((-0.35, -1.0, 0.15)))
@@ -193,7 +194,8 @@ class Poser:
         # aim 是「從靜止姿勢轉最少」，骨頭繞自己的扭轉和手肘實際的彎曲軸無關：手臂舉過頭時會漂掉一百多度，
         # 手腕得扭很大才能讓掌心朝對的方向。hinge_roll 有設定的一側，每根骨頭對準後立刻繞自己的軸
         # 轉到和彎曲軸保持固定角度（Idle 的關係）；上臂要在前臂對準前轉，否則會把前臂帶歪。
-        ref = self.hinge_roll.get(b1[-2:])
+        # 只用在手臂：腿也用 two_bone，同樣的後綴（.L/.R）不能讓大腿、小腿跟著轉
+        ref = self.hinge_roll.get(b1[-2:]) if b1.startswith("upper_arm") else None
         self.aim(b1, S, E - S)
         if ref is not None:
             self._roll_to_hinge(b1, p.cross(u), ref[0])
@@ -806,21 +808,28 @@ def flick_axes(rel, end, g, snap_frames=3, hold_until=7, turn_frames=6, snap_deg
     return rot @ d0, rot @ n0
 
 
-def natural_palm(P):
-    """左手放鬆時的掌心方向：垂直於手臂彎曲的平面、朝身體那側（手垂下時朝大腿，前臂水平時拇指朝上）。
+def natural_palm(P, sfx=".L"):
+    """手放鬆時的掌心方向：垂直於手臂彎曲的平面、朝身體那側（手垂下時朝大腿，前臂水平時拇指朝上）。
     IK 的骨頭扭轉是「從靜止姿勢轉最少」，和手臂的實際彎曲無關，不能拿來決定掌心。"""
-    S, E, W = (P.pb[n].head for n in ("upper_arm.L", "forearm.L", "hand.L"))
+    S, E, W = (P.pb[n + sfx].head for n in ("upper_arm", "forearm", "hand"))
     u = (W - S).normalized()
     p = (E - S) - u * (E - S).dot(u)                     # 手肘偏離肩到手腕連線的方向
-    return p.normalized().cross(u)
+    n = p.normalized().cross(u)
+    return n if sfx == ".L" else -n                      # 右手是鏡像
+
+
+def turn_hand(P, sfx, rel_q, direction, toward, k):
+    """手轉向「手指朝 direction、掌心朝 toward」：從 rel_q（相對前臂的轉動）轉過去 k（0～1）。"""
+    P.palm("hand" + sfx, direction, toward)
+    P.set_wrist_local("hand" + sfx, slerp_short(rel_q, P.wrist_local("hand" + sfx), k))
 
 
 def relax_left(P, g, rel_L, palm_off):
     """出手後第 g 格的左手：手指順著前臂、掌心朝 natural_palm（加上 palm_off 讓結束時剛好等於 Idle），
     從出手時相對前臂的轉動在 LEFT_RELAX 格內轉過去（太慢會一直維持扶球的方向，手臂放下時像手掌外翻）。
     不能只把手腕轉回和 Idle 相同的相對轉動：手臂放下途中前臂會被 IK 帶著轉，掌心會朝外。"""
-    P.palm("hand.L", P.pb["forearm.L"].matrix.col[1].to_3d(), natural_palm(P) + palm_off)
-    P.set_wrist_local("hand.L", slerp_short(rel_L, P.wrist_local("hand.L"), ease(min(1.0, g / LEFT_RELAX))))
+    turn_hand(P, ".L", rel_L, P.pb["forearm.L"].matrix.col[1].to_3d(), natural_palm(P) + palm_off,
+              ease(min(1.0, g / LEFT_RELAX)))
 
 
 def follow_through(P, g, total, hold, rel_axes, end_axes, end_R, rel_L, palm_off, state, snap_deg=150):
@@ -1064,8 +1073,313 @@ def make_layup(P):
     MOVE_SPEEDS["Layup"] = v0
 
 
+PASS_RELEASE, PASS_HOLD, PASS_END = 9, 14, 24
+# 胸前傳球的握法：雙手在球的後外側、手指朝上（手肘往外張），格式同 GRIP_TT
+GRIP_PASS = (V((-0.70, 0.65, -0.15)), V((-0.25, -0.30, 1.0)), V((0.70, 0.65, -0.15)), V((0.25, -0.30, 1.0)))
+
+
+def make_pass(P):
+    """胸前傳球（單次 24 格）：從 TripleThreat 第 0 格開始，球收到胸前、左腳往前跨，雙手往前推，
+    第 9 格（0.375 s）出手，之後球縮放為 0（由遊戲接手飛行）。出手後手掌往外翻、拇指朝下停到第 14 格，
+    再放下雙手、收腳，結束姿勢和 Idle 相同。原地動作，不推動。"""
+    P.new_action("Pass")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    R0, L0 = P.ankle_rest(".R"), P.ankle_rest(".L")
+    aR_tt, aL_tt = R0 + V((-0.10, 0.07, 0)), L0 + V((0.10, -0.07, 0))   # 三威脅站姿
+    aL_step = L0 + V((0.06, -0.24, 0))                   # 左腳往前跨一步
+
+    def move(a, b, f, f0, f1, h):                        # 腳從 a 抬起移到 b（f0～f1），中途抬高 h
+        u = min(1.0, max(0.0, (f - f0) / (f1 - f0)))
+        return a.lerp(b, ease(u)) + V((0, 0, h * math.sin(math.pi * u)))
+
+    def feet(f):                                         # 左腳 3～8 格跨出；收尾右腳 13～18、左腳 17～22 收回 Idle 站姿
+        aL = move(aL_tt, aL_step, f, 3, 8, 0.05) if f < 17 else move(aL_step, L0, f, 17, 22, 0.04)
+        return move(aR_tt, R0, f, 13, 18, 0.04), aL
+
+    hipsK = [(0, V((0, 0.02, -0.19))), (5, V((0, 0.0, -0.20))), (PASS_RELEASE, V((0, -0.07, -0.16))),
+             (PASS_HOLD, V((0, -0.06, -0.15))), (PASS_END, V((0, 0, -0.012)))]
+    leanK = [(0, V((0.14, 0.10, 0.05))), (5, V((0.10, 0.06, 0.03))), (PASS_RELEASE, V((0.12, 0.08, 0.04))),
+             (PASS_HOLD, V((0.12, 0.08, 0.04))), (PASS_END, V((0, 0, 0)))]
+    headK = [(0, -0.22), (5, -0.15), (PASS_RELEASE, -0.15), (PASS_HOLD, -0.12), (PASS_END, 0.02)]
+    # 手肘：三威脅 → 往外張（推球）→ 放下時經過朝下 → 和 Idle 一樣朝後
+    poleRK = [(0, V((-0.6, 0.8, -0.3))), (5, V((-0.9, 0.2, -0.4))), (PASS_RELEASE, V((-0.8, 0.0, -0.6))),
+              (PASS_HOLD, V((-0.8, 0.0, -0.6))), (19, V((-0.3, -0.3, -1.0))), (PASS_END, V((-0.35, 1.0, -0.25)))]
+    poleLK = [(0, V((0.6, 0.6, -0.6))), (5, V((0.9, 0.2, -0.4))), (PASS_RELEASE, V((0.8, 0.0, -0.6))),
+              (PASS_HOLD, V((0.8, 0.0, -0.6))), (19, V((0.3, -0.3, -1.0))), (PASS_END, V((0.35, 1.0, -0.25)))]
+    B0, B_chest, B_rel = V((-0.22, -0.25, 0.96)), V((-0.02, -0.30, 1.12)), V((-0.01, -0.68, 1.15))
+    endR, endL = V((-0.215, -0.03, 0.85)), V((0.215, -0.03, 0.85))   # 和 Idle 相同
+    out = {".R": V((-0.45, 0.0, -0.89)), ".L": V((0.45, 0.0, -0.89))}   # 出手後掌心朝外下方（拇指朝下）
+
+    def pose_body(f, wR, wL):
+        pts = spline_pts if f > PASS_HOLD else smooth_pts
+        aR, aL = feet(f)
+        P.pose(f"PA{f}", pts(f, hipsK), tuple(pts(f, leanK)), pts(f, headK), wR, wL, aR, aL,
+               poleR=pts(f, poleRK), poleL=pts(f, poleLK))
+
+    pose_body(PASS_END, endR + Z, endL + Z)               # 結束姿勢：記下和 Idle 的掌心差
+    off = {sfx: -P.pb["hand" + sfx].matrix.to_3x3().col[2] - natural_palm(P, sfx) for sfx in (".R", ".L")}
+    rel_q, rel_w, hold_q = {}, {}, {}
+    for f in range(PASS_END + 1):
+        if f <= PASS_RELEASE:
+            if f <= 5:                                   # 球收到胸前
+                B = B0.lerp(B_chest, ease(f / 5))
+            else:                                        # 往前推：越推越快，出手時速度最快
+                u = (f - 5) / (PASS_RELEASE - 5)
+                B = B_chest.lerp(B_rel, u * u)
+            B = B + Z
+            w = ease(min(1.0, f / 5))
+            g = [a.lerp(b, w) for a, b in zip(GRIP_TT, GRIP_PASS)]
+            P.hold_two(B, g[0], g[1], g[2], g[3], lambda wR, wL: pose_body(f, wR, wL))
+            for sfx in (".R", ".L"):
+                rel_q[sfx], rel_w[sfx] = P.wrist_local("hand" + sfx), P.pb["hand" + sfx].head.copy()
+            B_out = B
+            P.key(f + 1, B)
+            continue
+        gf = f - PASS_RELEASE
+        follow = {sfx: rel_w[sfx] + V((0.04 if sfx == ".L" else -0.04, -0.04, -0.03)) for sfx in (".R", ".L")}
+        if f <= PASS_HOLD:                               # 手再往前送一點、停住
+            wR = smooth_pts(f, [(PASS_RELEASE, rel_w[".R"]), (12, follow[".R"]), (PASS_HOLD, follow[".R"])])
+            wL = smooth_pts(f, [(PASS_RELEASE, rel_w[".L"]), (12, follow[".L"]), (PASS_HOLD, follow[".L"])])
+        else:                                            # 沿身體前方劃弧放下
+            wR = spline_pts(f, [(PASS_HOLD, follow[".R"]), (19, V((-0.24, -0.36, 1.00)) + Z), (PASS_END, endR + Z)])
+            wL = spline_pts(f, [(PASS_HOLD, follow[".L"]), (19, V((0.24, -0.36, 1.00)) + Z), (PASS_END, endL + Z)])
+        pose_body(f, wR, wL)
+        for sfx in (".R", ".L"):
+            fore = P.pb["forearm" + sfx].matrix.col[1].to_3d()
+            if f <= PASS_HOLD:                           # 3 格內翻成拇指朝下並停住
+                turn_hand(P, sfx, rel_q[sfx], fore, out[sfx], ease(min(1.0, gf / 3)))
+                hold_q[sfx] = P.wrist_local("hand" + sfx)
+            else:                                        # 放下時轉回放鬆的掌心（朝身體）
+                turn_hand(P, sfx, hold_q[sfx], fore, natural_palm(P, sfx) + off[sfx],
+                          ease(min(1.0, (f - PASS_HOLD) / 5)))
+        P.key(f + 1, B_out + V((0, -7.0, 0.3)) * (gf / FPS), 0.0)   # 球往前飛走（隱藏）
+
+
+CATCH_SEEN, CATCH_AT, CATCH_GIVE, CATCH_END = 3, 8, 12, 20
+# 接球的手型：雙手在球的後外側、掌心朝前迎球、手指朝上（兩手拇指相對），格式同 GRIP_TT
+GRIP_CATCH = (V((-0.60, 0.78, 0.0)), V((-0.2, -0.2, 1.0)), V((0.60, 0.78, 0.0)), V((0.2, -0.2, 1.0)))
+
+
+def make_catch(P):
+    """接球（單次 20 格）：從 Idle 第 0 格開始，雙腳換成三威脅站姿、屈膝，雙手舉到胸前張開迎球；
+    球從前方飛來（第 3 格出現），第 8 格（0.33 s）雙手接住，往胸前收（緩衝）到第 12 格，
+    第 20 格移到三威脅位置，結束姿勢與 TripleThreat 第 0 格相同。原地動作，不推動。"""
+    P.new_action("Catch")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    R0, L0 = P.ankle_rest(".R"), P.ankle_rest(".L")
+    aR_tt, aL_tt = R0 + V((-0.10, 0.07, 0)), L0 + V((0.10, -0.07, 0))   # 三威脅站姿（同 make_triple_threat）
+
+    def move(a, b, f, f0, f1, h):                        # 腳從 a 抬起移到 b（f0～f1），中途抬高 h
+        u = min(1.0, max(0.0, (f - f0) / (f1 - f0)))
+        return a.lerp(b, ease(u)) + V((0, 0, h * math.sin(math.pi * u)))
+
+    hipsK = [(0, V((0, 0, -0.012))), (CATCH_AT, V((0, 0.0, -0.14))), (CATCH_GIVE, V((0, 0.03, -0.21))),
+             (CATCH_END, V((0, 0.02, -0.19)))]
+    leanK = [(0, V((0, 0, 0))), (CATCH_AT, V((0.08, 0.05, 0.02))), (CATCH_GIVE, V((0.14, 0.09, 0.04))),
+             (CATCH_END, V((0.14, 0.10, 0.05)))]
+    headK = [(0, 0.02), (CATCH_AT, -0.12), (CATCH_END, -0.22)]
+    # 手肘：Idle 朝後 → 迎球時朝外下方 → 三威脅
+    poleRK = [(0, V((-0.35, 1.0, -0.25))), (6, V((-0.6, 0.2, -0.8))), (CATCH_GIVE, V((-0.7, 0.4, -0.6))),
+              (CATCH_END, V((-0.6, 0.8, -0.3)))]
+    poleLK = [(0, V((0.35, 1.0, -0.25))), (6, V((0.6, 0.2, -0.8))), (CATCH_GIVE, V((0.7, 0.4, -0.6))),
+              (CATCH_END, V((0.6, 0.6, -0.6)))]
+    B_catch, B_chest, B_tt = V((-0.02, -0.46, 1.14)), V((-0.04, -0.31, 1.08)), V((-0.22, -0.25, 0.96))
+    idleR, idleL = V((-0.215, -0.03, 0.85)), V((0.215, -0.03, 0.85))   # Idle 第 0 格的手腕
+
+    def pose_body(f, wR, wL):
+        P.pose(f"C{f}", smooth_pts(f, hipsK), tuple(smooth_pts(f, leanK)), smooth_pts(f, headK), wR, wL,
+               move(R0, aR_tt, f, 1, 6, 0.04), move(L0, aL_tt, f, 3, 8, 0.04),
+               poleR=smooth_pts(f, poleRK), poleL=smooth_pts(f, poleLK))
+
+    sR, sL = GRIP_CATCH[0].normalized(), GRIP_CATCH[2].normalized()
+    dR = (GRIP_CATCH[1] - sR * GRIP_CATCH[1].dot(sR)).normalized()
+    dL = (GRIP_CATCH[3] - sL * GRIP_CATCH[3].dot(sL)).normalized()
+    reach = R_BALL / P.s + PALM_T
+    for f in range(CATCH_END + 1):
+        if f < CATCH_AT:                                 # 雙手舉到接球點、張開等球（離球面的空隙到第 8 格收到 0）
+            k = ease(min(1.0, f / 6))
+            margin = 0.06 * (CATCH_AT - f) / CATCH_AT
+            tR = B_catch + Z + sR * (reach + margin) - dR * PALM_A
+            tL = B_catch + Z + sL * (reach + margin) - dL * PALM_A
+            pose_body(f, (idleR + Z).lerp(tR, k), (idleL + Z).lerp(tL, k))
+            P.palm("hand.R", dR, -sR, k)
+            P.palm("hand.L", dL, -sL, k)
+            if f < CATCH_SEEN:                           # 球還沒進畫面
+                P.key(f + 1, B_catch + Z + V((0, -1.6, 0.15)), 0.0)
+            else:                                        # 球從前方飛來（約 7 m/s，略帶弧度）
+                tau = (CATCH_AT - f) / FPS
+                P.key(f + 1, B_catch + Z + V((0, -7.0 * tau, 0.9 * tau - 4.9 * tau * tau * 0.3)))
+            continue
+        if f <= CATCH_GIVE:                              # 接住後往胸前收
+            B = B_catch.lerp(B_chest, ease((f - CATCH_AT) / (CATCH_GIVE - CATCH_AT)))
+        else:                                            # 移到三威脅位置
+            B = B_chest.lerp(B_tt, ease((f - CATCH_GIVE) / (CATCH_END - CATCH_GIVE)))
+        w = ease((f - CATCH_AT) / (CATCH_END - CATCH_AT))   # 手型從接球換成三威脅
+        g = [a.lerp(b, w) for a, b in zip(GRIP_CATCH, GRIP_TT)]
+        P.hold_two(B + Z, g[0], g[1], g[2], g[3], lambda wR, wL: pose_body(f, wR, wL))
+        P.key(f + 1, B + Z)
+
+
+def defense_arms(P, wR, wL):
+    """防守的手：手指順著前臂（略往外），掌心朝前（擋傳球、干擾視線）。"""
+    for sfx, side in ((".R", -1), (".L", 1)):
+        fore = P.pb["forearm" + sfx].matrix.col[1].to_3d()
+        P.palm("hand" + sfx, fore + V((0.3 * side, 0, 0.2)), V((0.25 * side, -1.0, 0.0)))
+
+
+def make_defense(P):
+    """防守站姿（循環 24 格）：雙腳比肩寬、左腳略前，深蹲、上身挺直、抬頭看前方；
+    左手舉高（干擾投籃）、右手往外低伸（擋傳球路線），身體輕微上下彈動。原地，無球。"""
+    P.new_action("Defense")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    aR = P.ankle_rest(".R") + V((-0.16, 0.05, 0))
+    aL = P.ankle_rest(".L") + V((0.16, -0.05, 0))
+    for f in range(25):
+        t = f / 24
+        c, sn = math.cos(4 * math.pi * t), math.sin(2 * math.pi * t)
+        wR = V((-0.48, -0.20, 1.02 + 0.02 * sn)) + Z
+        wL = V((0.26, -0.22, 1.64 - 0.03 * sn)) + Z
+        P.pose(f"D{f}", V((0, 0.10, -0.26 - 0.012 * c)), (0.24, 0.08, 0.0), -0.30, wR, wL, aR, aL,
+               poleR=V((-0.4, 0.6, -0.7)), poleL=V((0.9, 0.0, -0.4)))
+        defense_arms(P, wR, wL)
+        P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
+
+
+def make_defense_slide(P):
+    """防守側滑步（循環 12 格，兩步）：防守站姿往左邊（+X）滑，左腳先跨、右腳跟上，雙腳不交叉；
+    雙手往兩側張開、掌心朝前。原地循環，遊戲以 MOVE_SPEEDS["DefenseSlide"] 往角色左邊推動。"""
+    P.new_action("DefenseSlide")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    N = 12
+    cycle, speed = gait(N, 0.5, -0.17, 0.17, lift=0.05, toe=0.10)
+    MOVE_SPEEDS["DefenseSlide"] = speed
+
+    def side(ph, base):                                  # gait 的前後換成左右：著地時腳往右（-X）移
+        a, r = cycle(ph, V((0, 0, 0)))
+        return base + V((-a.y, 0, a.z)), r
+
+    baseR = P.ankle_rest(".R") + V((-0.17, 0.02, 0))
+    baseL = P.ankle_rest(".L") + V((0.17, -0.02, 0))
+    for f in range(N + 1):
+        t = f / N
+        aR, _ = side((t + 0.5) % 1.0, baseR)
+        aL, _ = side(t % 1.0, baseL)
+        c = math.cos(4 * math.pi * t)
+        wR = V((-0.46, -0.22, 1.08 + 0.01 * c)) + Z
+        wL = V((0.46, -0.22, 1.08 + 0.01 * c)) + Z
+        P.pose(f"DS{f}", V((0.01 * math.sin(2 * math.pi * t), 0.10, -0.25 - 0.012 * c)), (0.24, 0.08, 0.0), -0.30,
+               wR, wL, aR, aL, poleR=V((-0.4, 0.6, -0.7)), poleL=V((0.4, 0.6, -0.7)))
+        defense_arms(P, wR, wL)
+        P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
+
+
+REB = dict(SEEN=4, LOAD=6, TAKEOFF=8, CATCH=14, LAND=20, ABSORB=23, END=30)
+REB_HEIGHT = 0.40        # 縮放前；起跳高度
+# 頭上接球（雙手在球兩側、手指朝上）與下巴前護球（手肘往外張）的握法，格式同 GRIP_TT
+GRIP_HIGH = (V((-0.95, 0.25, 0.05)), V((-0.1, -0.2, 1.0)), V((0.95, 0.25, 0.05)), V((0.1, -0.2, 1.0)))
+GRIP_CHIN = (V((-0.90, 0.40, 0.0)), V((0.15, -0.3, 1.0)), V((0.90, 0.40, 0.0)), V((-0.15, -0.3, 1.0)))
+
+
+def make_rebound(P):
+    """搶籃板（單次 30 格）：從 Idle 第 0 格開始，屈膝蓄力、雙手往後擺，第 8 格雙腳起跳，
+    雙手往上伸，第 14 格（0.58 s，最高點）在頭上接住從上方落下的球，下落時把球收到下巴前（手肘往外護球），
+    第 20 格雙腳落地緩衝，第 30 格移到三威脅位置，結束姿勢與 TripleThreat 第 0 格相同。原地動作，不推動。"""
+    P.new_action("Rebound")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    R0, L0 = P.ankle_rest(".R"), P.ankle_rest(".L")
+    aR_tt, aL_tt = R0 + V((-0.10, 0.07, 0)), L0 + V((0.10, -0.07, 0))   # 落地成三威脅站姿
+
+    def jump(f):
+        if not REB["TAKEOFF"] <= f <= REB["LAND"]:
+            return 0.0
+        u = (f - REB["TAKEOFF"]) / (REB["LAND"] - REB["TAKEOFF"])
+        return 4 * REB_HEIGHT * u * (1 - u)
+
+    def feet(f):                                         # 回傳 (右踝, 左踝, 腳尖下壓)
+        J = V((0, 0, jump(f)))
+        if f <= REB["TAKEOFF"]:
+            return R0, L0, 0.0
+        if f >= REB["LAND"]:
+            return aR_tt, aL_tt, 0.0
+        u = (f - REB["TAKEOFF"]) / (REB["LAND"] - REB["TAKEOFF"])
+        tuck = V((0, 0, 0.06 * math.sin(math.pi * u)))   # 空中腳微微收起
+        toe = 0.5 * math.sin(math.pi * min(1.0, u * 1.3))
+        return R0.lerp(aR_tt, ease(u)) + J + tuck, L0.lerp(aL_tt, ease(u)) + J + tuck, toe
+
+    hipsK = [(0, V((0, 0, -0.012))), (REB["LOAD"], V((0, 0.06, -0.26))), (REB["TAKEOFF"], V((0, 0.02, -0.06))),
+             (REB["CATCH"], V((0, 0.0, -0.04))), (REB["LAND"], V((0, 0.03, -0.12))), (REB["ABSORB"], V((0, 0.04, -0.24))),
+             (REB["END"], V((0, 0.02, -0.19)))]
+    leanK = [(0, V((0, 0, 0))), (REB["LOAD"], V((0.22, 0.10, 0.04))), (REB["TAKEOFF"], V((0.05, 0.02, 0.0))),
+             (REB["CATCH"], V((-0.04, 0.0, 0.0))), (REB["LAND"], V((0.10, 0.06, 0.03))), (REB["ABSORB"], V((0.18, 0.10, 0.05))),
+             (REB["END"], V((0.14, 0.10, 0.05)))]
+    headK = [(0, 0.02), (REB["LOAD"], -0.25), (REB["CATCH"], -0.30), (REB["LAND"], -0.15), (REB["END"], -0.22)]
+    # 手肘：Idle 朝後 → 往後擺 → 舉高時朝外 → 護球時朝外下方 → 三威脅
+    poleRK = [(0, V((-0.35, 1.0, -0.25))), (REB["LOAD"], V((-0.3, 1.0, -0.3))), (12, V((-0.9, 0.1, -0.3))),
+              (REB["LAND"], V((-0.7, 0.2, -0.7))), (REB["ABSORB"], V((-0.7, 0.2, -0.7))), (REB["END"], V((-0.6, 0.8, -0.3)))]
+    poleLK = [(0, V((0.35, 1.0, -0.25))), (REB["LOAD"], V((0.3, 1.0, -0.3))), (12, V((0.9, 0.1, -0.3))),
+              (REB["LAND"], V((0.7, 0.2, -0.7))), (REB["ABSORB"], V((0.7, 0.2, -0.7))), (REB["END"], V((0.6, 0.6, -0.6)))]
+    # 球心（不含跳躍高度）：頭上接住 → 下巴前 → 三威脅
+    B_high, B_chin, B_tt = V((-0.02, -0.28, 1.92)), V((-0.02, -0.30, 1.40)), V((-0.22, -0.25, 0.96))
+    B_absorb = V((-0.02, -0.36, 1.27))                   # 落地屈膝時下巴跟著往下、往前
+    idleR, idleL = V((-0.215, -0.03, 0.85)), V((0.215, -0.03, 0.85))
+    backR, backL = V((-0.24, 0.14, 0.82)), V((0.24, 0.14, 0.82))   # 蓄力時手往後擺
+
+    def pose_body(f, wR, wL):
+        aR, aL, toe = feet(f)
+        P.pose(f"RB{f}", smooth_pts(f, hipsK) + V((0, 0, jump(f))), tuple(smooth_pts(f, leanK)), smooth_pts(f, headK),
+               wR, wL, aR, aL, poleR=smooth_pts(f, poleRK), poleL=smooth_pts(f, poleLK), footR=toe, footL=toe)
+
+    sR, sL = GRIP_HIGH[0].normalized(), GRIP_HIGH[2].normalized()
+    dR = (GRIP_HIGH[1] - sR * GRIP_HIGH[1].dot(sR)).normalized()
+    dL = (GRIP_HIGH[3] - sL * GRIP_HIGH[3].dot(sL)).normalized()
+    reach = R_BALL / P.s + PALM_T
+    v_catch = V((0, 1.2, -3.6))                          # 接球瞬間球的速度：從籃框往下、往球員這邊落
+    for f in range(REB["END"] + 1):
+        J = V((0, 0, jump(f)))
+        Bc = B_high + Z + V((0, 0, jump(REB["CATCH"])))  # 接球點（最高點）
+        if f < REB["CATCH"]:
+            margin = 0.05 + 0.08 * (REB["CATCH"] - f) / (REB["CATCH"] - REB["LOAD"])   # 球從上方落進兩手之間，接住前手要比球寬
+            tR = Bc + sR * (reach + margin) - dR * PALM_A
+            tL = Bc + sL * (reach + margin) - dL * PALM_A
+            if f <= REB["LOAD"]:                         # 雙手往後擺
+                k = ease(f / REB["LOAD"])
+                wR, wL = (idleR + Z).lerp(backR + Z, k), (idleL + Z).lerp(backL + Z, k)
+                kh = 0.0
+            else:                                        # 雙手往上伸到接球點
+                k = ease(min(1.0, (f - REB["LOAD"]) / (12 - REB["LOAD"])))
+                wR, wL = (backR + Z + J).lerp(tR, k), (backL + Z + J).lerp(tL, k)
+                kh = k
+            pose_body(f, wR, wL)
+            P.palm("hand.R", dR, -sR, kh)
+            P.palm("hand.L", dL, -sL, kh)
+            if f < REB["SEEN"]:                          # 球還沒進畫面
+                P.key(f + 1, Bc + V((0, -0.6, 1.0)), 0.0)
+            else:                                        # 球從籃框往下落到手上
+                tau = (REB["CATCH"] - f) / FPS
+                P.key(f + 1, Bc - v_catch * tau + V((0, 0, -4.9 * tau * tau)))
+            continue
+        if f <= REB["LAND"]:                             # 下落時把球收到下巴前
+            u = ease((f - REB["CATCH"]) / (REB["LAND"] - REB["CATCH"]))
+            B = B_high.lerp(B_chin, u) + J
+            g = [a.lerp(b, u) for a, b in zip(GRIP_HIGH, GRIP_CHIN)]
+        elif f <= REB["ABSORB"]:                         # 落地緩衝，球護在下巴前
+            B = B_chin.lerp(B_absorb, ease((f - REB["LAND"]) / (REB["ABSORB"] - REB["LAND"])))
+            g = list(GRIP_CHIN)
+        else:                                            # 移到三威脅位置
+            u = ease((f - REB["ABSORB"]) / (REB["END"] - REB["ABSORB"]))
+            B = B_absorb.lerp(B_tt, u)
+            g = [a.lerp(b, u) for a, b in zip(GRIP_CHIN, GRIP_TT)]
+        P.hold_two(B + Z, g[0], g[1], g[2], g[3], lambda wR, wL: pose_body(f, wR, wL))
+        P.key(f + 1, B + Z)
+
+
 CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot",
-         "Layup")
+         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound")
 
 
 def build_all(rig, ball, off, scale):
@@ -1085,6 +1399,11 @@ def build_all(rig, ball, off, scale):
     make_stop_jump(P)
     make_set_shot(P)
     make_layup(P)
+    make_pass(P)
+    make_catch(P)
+    make_defense(P)
+    make_defense_slide(P)
+    make_rebound(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):

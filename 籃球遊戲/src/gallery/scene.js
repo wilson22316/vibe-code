@@ -98,13 +98,16 @@ const MOVE_SPEEDS = {
   StopJump: (t) => 2.843 * Math.min(1, Math.max(0, (12 / 24 - t) / (4 / 24))),
   // 上籃：第 11 格起跳前 Sprint 速度，空中 1.895，第 22 格落地後 4 格線性降到 0（athlete_anims.py 的 LAY）
   Layup: (t) => (t < 11 / 24 ? 2.843 : 1.895 * Math.min(1, Math.max(0, (26 / 24 - t) / (4 / 24)))),
+  DefenseSlide: 1.289,
 }
-// 推動時在 z = -2～2 m 之間跑，跑出去就從另一端再進來
+// 推動方向：預設往前（+Z）；列在這裡的往角色左邊（+X）
+const SIDE_MOVES = new Set(['DefenseSlide'])
+// 推動時在 -2～2 m 之間跑，跑出去就從另一端再進來
 const RUN_HALF = 2
 const DEFAULT_CLIP = 'Idle'
 // 淡入淡出秒數，沿用 reference 原型的 0.35 s
 const FADE_SECONDS = 0.35
-const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup'])
+const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup', 'Pass', 'Catch', 'Rebound'])
 
 export function createGallery(container) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -175,7 +178,7 @@ export function createGallery(container) {
   let ball = null
   const ballScale = new Map()
 
-  // 只在播移動動作時推動角色往前（+Z）；其他時候回到原點
+  // 只在播移動動作時推動角色（往前 +Z，側滑往左 +X）；其他時候回到原點
   let character = null
   let movePush = false
 
@@ -185,13 +188,16 @@ export function createGallery(container) {
 
   function updateMovePush(delta) {
     if (!character) return
-    const spec = movePush && MOVE_SPEEDS[current?.getClip().name]
+    const name = current?.getClip().name
+    const spec = movePush && MOVE_SPEEDS[name]
     if (spec) {
       const speed = typeof spec === 'function' ? spec(current.time) : spec
-      character.position.z += speed * delta * mixer.timeScale
-      if (character.position.z > RUN_HALF) character.position.z -= 2 * RUN_HALF
+      const [axis, other] = SIDE_MOVES.has(name) ? ['x', 'z'] : ['z', 'x']
+      character.position[axis] += speed * delta * mixer.timeScale
+      if (character.position[axis] > RUN_HALF) character.position[axis] -= 2 * RUN_HALF
+      character.position[other] = 0
     } else {
-      character.position.z = 0
+      character.position.set(0, character.position.y, 0)
     }
   }
 
