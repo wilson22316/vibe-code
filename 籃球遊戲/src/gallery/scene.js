@@ -65,6 +65,12 @@ export function createGallery(container) {
   shadowCatcher.receiveShadow = true
   scene.add(shadowCatcher)
 
+  // 地面格線：5 m 見方、每格 0.25 m，用來看腳有沒有打滑；預設隱藏
+  const grid = new THREE.GridHelper(5, 20, 0x4a3326, 0x6f7f62)
+  grid.position.y = 0.001
+  grid.visible = false
+  scene.add(grid)
+
   function resize() {
     const { clientWidth: w, clientHeight: h } = container
     if (!w || !h) return
@@ -98,6 +104,10 @@ export function createGallery(container) {
 
   function setSkeletonVisible(visible) {
     if (skeletonHelper) skeletonHelper.visible = visible
+  }
+
+  function setGridVisible(visible) {
+    grid.visible = visible
   }
 
   // 載入角色並播放 Idle；失敗時 ready 會 reject，由畫面顯示錯誤
@@ -145,6 +155,7 @@ export function createGallery(container) {
     play,
     setSpeed,
     setSkeletonVisible,
+    setGridVisible,
     dispose() {
       renderer.setAnimationLoop(null)
       resizeObserver.disconnect()

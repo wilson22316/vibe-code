@@ -20,6 +20,9 @@ watch(speed, (value) => gallery.setSpeed(value))
 const showSkeleton = ref(false)
 watch(showSkeleton, (value) => gallery.setSkeletonVisible(value))
 
+const showGrid = ref(false)
+watch(showGrid, (value) => gallery.setGridVisible(value))
+
 onMounted(() => {
   gallery = createGallery(stage.value)
   gallery.ready.then(
@@ -68,6 +71,10 @@ onBeforeUnmount(() => {
     <label class="toggle">
       <input v-model="showSkeleton" type="checkbox" />
       骨架
+    </label>
+    <label class="toggle">
+      <input v-model="showGrid" type="checkbox" />
+      格線
     </label>
   </nav>
 </template>
