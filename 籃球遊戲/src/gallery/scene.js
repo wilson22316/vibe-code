@@ -77,6 +77,7 @@ export function createGallery(container) {
   resize()
 
   let mixer = null
+  let skeletonHelper = null
   const actions = {}
   let current = null
   const timer = new THREE.Timer()
@@ -95,6 +96,10 @@ export function createGallery(container) {
     if (mixer) mixer.timeScale = speed
   }
 
+  function setSkeletonVisible(visible) {
+    if (skeletonHelper) skeletonHelper.visible = visible
+  }
+
   // 載入角色並播放 Idle；失敗時 ready 會 reject，由畫面顯示錯誤
   const ready = new GLTFLoader().loadAsync(MODEL_URL).then((gltf) => {
     const root = gltf.scene
@@ -105,6 +110,12 @@ export function createGallery(container) {
       o.frustumCulled = false
     })
     scene.add(root)
+
+    // 骨架線不做深度測試，被身體擋住也看得到
+    skeletonHelper = new THREE.SkeletonHelper(root)
+    skeletonHelper.visible = false
+    skeletonHelper.material.depthTest = false
+    scene.add(skeletonHelper)
 
     mixer = new THREE.AnimationMixer(root)
     for (const clip of gltf.animations) {
@@ -133,6 +144,7 @@ export function createGallery(container) {
     ready,
     play,
     setSpeed,
+    setSkeletonVisible,
     dispose() {
       renderer.setAnimationLoop(null)
       resizeObserver.disconnect()

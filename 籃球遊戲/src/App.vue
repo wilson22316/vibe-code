@@ -17,6 +17,9 @@ function select(name) {
 
 watch(speed, (value) => gallery.setSpeed(value))
 
+const showSkeleton = ref(false)
+watch(showSkeleton, (value) => gallery.setSkeletonVisible(value))
+
 onMounted(() => {
   gallery = createGallery(stage.value)
   gallery.ready.then(
@@ -61,6 +64,10 @@ onBeforeUnmount(() => {
         step="0.1"
       />
       <span>{{ speed.toFixed(1) }}×</span>
+    </label>
+    <label class="toggle">
+      <input v-model="showSkeleton" type="checkbox" />
+      骨架
     </label>
   </nav>
 </template>
@@ -115,7 +122,8 @@ body,
   color: #fff;
 }
 
-.speed {
+.speed,
+.toggle {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -124,6 +132,11 @@ body,
   background: rgba(255, 255, 255, 0.85);
   color: #4a3326;
   font: 14px sans-serif;
+}
+
+.toggle {
+  gap: 4px;
+  cursor: pointer;
 }
 
 .speed span {
