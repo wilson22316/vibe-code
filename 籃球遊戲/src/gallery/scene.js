@@ -88,13 +88,21 @@ export function startClipsAtZero(clips) {
 
 const BALL_NODE = 'Ball'
 // 原地移動的動作，遊戲以這些速度（m/s）推動角色腳才不會打滑（見 CLAUDE.md；建置時印出的 move_speeds 為準）
-const MOVE_SPEEDS = { Sprint: 2.843, DribbleWalk: 0.979, Jog: 1.99, Run: 3.345 }
+// 值可以是固定速度，或「動作時間 → 速度」的函式（單次動作速度會變）。
+const MOVE_SPEEDS = {
+  Sprint: 2.843,
+  DribbleWalk: 0.979,
+  Jog: 1.99,
+  Run: 3.345,
+  // 急停：第 8 格雙腳落地前維持 Sprint 速度，第 8～12 格線性降到 0（athlete_anims.py 的 STOP_LAND、STOP_BRAKE）
+  StopJump: (t) => 2.843 * Math.min(1, Math.max(0, (12 / 24 - t) / (4 / 24))),
+}
 // 推動時在 z = -2～2 m 之間跑，跑出去就從另一端再進來
 const RUN_HALF = 2
 const DEFAULT_CLIP = 'Idle'
 // 淡入淡出秒數，沿用 reference 原型的 0.35 s
 const FADE_SECONDS = 0.35
-const ONCE_CLIPS = new Set(['Shoot'])
+const ONCE_CLIPS = new Set(['Shoot', 'StopJump'])
 
 export function createGallery(container) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -175,8 +183,9 @@ export function createGallery(container) {
 
   function updateMovePush(delta) {
     if (!character) return
-    const speed = movePush && MOVE_SPEEDS[current?.getClip().name]
-    if (speed) {
+    const spec = movePush && MOVE_SPEEDS[current?.getClip().name]
+    if (spec) {
+      const speed = typeof spec === 'function' ? spec(current.time) : spec
       character.position.z += speed * delta * mixer.timeScale
       if (character.position.z > RUN_HALF) character.position.z -= 2 * RUN_HALF
     } else {

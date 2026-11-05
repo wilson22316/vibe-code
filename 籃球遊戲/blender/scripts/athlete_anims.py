@@ -214,6 +214,29 @@ def ease(s):
     return 0.5 - 0.5 * math.cos(math.pi * s)
 
 
+def hermite(y0, y1, m0, m1, s):
+    """三次 Hermite 曲線：s 從 0 到 1，兩端位置 y0、y1，兩端斜率 m0、m1（以 s 為單位）。"""
+    return ((2 * s ** 3 - 3 * s * s + 1) * y0 + (s ** 3 - 2 * s * s + s) * m0
+            + (3 * s * s - 2 * s ** 3) * y1 + (s ** 3 - s * s) * m1)
+
+
+def hermite_fit(y0, y1, n, d0, d1):
+    """找 Hermite 斜率 (m0, m1)，讓 n 格的曲線第 1 格位移 d0、最後一格位移 d1（d0 為 None 時 m0 = 0）。
+    關鍵影格之間是直線內插，所以要對齊的是「一格的位移」而不是曲線端點的斜率。"""
+    a = 1 / n
+    h10 = lambda s: s ** 3 - 2 * s * s + s
+    h11 = lambda s: s ** 3 - s * s
+    base = lambda s: (2 * s ** 3 - 3 * s * s + 1) * y0 + (3 * s * s - 2 * s ** 3) * y1
+    e1 = (y1 - d1) - base(1 - a)                         # 倒數第 1 格的位置
+    if d0 is None:
+        return 0.0, e1 / h11(1 - a)
+    e0 = (y0 + d0) - base(a)                             # 第 1 格的位置
+    # [h10(a) h11(a); h10(1-a) h11(1-a)] [m0 m1] = [e0 e1]
+    A, B, C, D = h10(a), h11(a), h10(1 - a), h11(1 - a)
+    det = A * D - B * C
+    return (e0 * D - B * e1) / det, (A * e1 - C * e0) / det
+
+
 def smooth_pts(t, pts):
     for (t0, v0), (t1, v1) in zip(pts, pts[1:]):
         if t0 <= t <= t1:
@@ -521,7 +544,121 @@ def make_run(P, name, N, S, Y, lift, toe, hips_z, bob, lean, head, arm_y, arm_z)
         P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
 
 
-CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run")
+STOP_LAND, STOP_BRAKE, STOP_END = 8, 12, 18             # 急停：雙腳落地、煞停、結束（三威脅）的影格
+
+
+def make_stop_jump(P):
+    """急停（單次 18 格）：從 Sprint 第 0 格開始，右手用力把球往下拍（第 4 格落地），右腳蹬地小跳，
+    第 8 格雙腳同時落地、第 9 格雙手接球，第 8～12 格腳踩住地面煞停，第 18 格接到 TripleThreat 第 0 格。
+    原地動作：遊戲推動速度第 8 格前維持 Sprint 速度，第 8～12 格線性降到 0（見 STOP_* 與 MOVE_SPEEDS）。"""
+    P.new_action("StopJump")
+    Z = P.Z
+    v0 = SPRINT_SPEED                                    # 縮放前 3.0 m/s
+    brake = v0 * (STOP_BRAKE - STOP_LAND) / FPS / 2      # 煞停期間身體前進（腳往後移）的距離
+    sprint_cycle, _ = gait(12, 0.40, -0.30, 0.30, lift=0.20, toe=0.45)
+    baseR = P.ankle_rest(".R") + V((0.02, 0, 0))
+    baseL = P.ankle_rest(".L") + V((-0.02, 0, 0))
+    aR0, rR0 = sprint_cycle(0.0, baseR)
+    aL0, rL0 = sprint_cycle(0.5, baseL)
+    aR_tt = P.ankle_rest(".R") + V((-0.10, 0.07, 0))     # 三威脅站姿（同 make_triple_threat）
+    aL_tt = P.ankle_rest(".L") + V((0.10, -0.07, 0))
+    PUSH = 3                                             # 右腳蹬地離開的影格
+    aR_push = aR0 + V((0, v0 * PUSH / FPS, 0))
+
+    def feet(f):
+        """回傳 (右踝, 左踝, 右腳尖下壓, 左腳尖下壓)。"""
+        land = lambda a: a - V((0, brake, 0))           # 落地點比最後站姿前面 brake
+        if f >= STOP_LAND:
+            u = min(1.0, (f - STOP_LAND) / (STOP_BRAKE - STOP_LAND))
+            k = brake * (1 - (1 - u) ** 2)               # 速度線性降到 0
+            return land(aR_tt) + V((0, k, 0)), land(aL_tt) + V((0, k, 0)), 0.0, 0.0
+        # 空中的腳前後用 Hermite 曲線：蹬地與落地時都以身體速度往後移（相對地面不動），才不會滑
+        def air(a0, a1, s, m0, m1, lift):
+            y = hermite(a0.y, a1.y, m0, m1, s)
+            p = a0.lerp(a1, ease(s))
+            return V((p.x, y, p.z + lift * math.sin(math.pi * s)))
+        if f <= PUSH:
+            aR, rR = aR0 + V((0, v0 * f / FPS, 0)), 0.0
+        else:
+            s = (f - PUSH) / (STOP_LAND - PUSH)
+            m0, m1 = hermite_fit(aR_push.y, land(aR_tt).y, STOP_LAND - PUSH, v0 / FPS, v0 / FPS)
+            aR, rR = air(aR_push, land(aR_tt), s, m0, m1, 0.10), 0.30 * math.sin(math.pi * s)
+        s = f / STOP_LAND
+        m0, m1 = hermite_fit(aL0.y, land(aL_tt).y, STOP_LAND, None, v0 / FPS)
+        aL = air(aL0, land(aL_tt), s, m0, m1, 0.04)
+        return aR, aL, rR, rL0 * (1 - ease(s))
+
+    # 身體：影格 → (臀部位移, 前傾, 頭, 轉身)
+    hipsK = [(0, V((0, -0.04, -0.10))), (PUSH, V((0, -0.04, -0.14))), (6, V((0, -0.02, -0.05))),
+             (STOP_LAND, V((0, 0.02, -0.25))), (STOP_BRAKE, V((0, 0.03, -0.23))), (STOP_END, V((0, 0.02, -0.19)))]
+    leanK = [(0, V((0.16, 0.08, 0.03))), (6, V((0.10, 0.05, 0.02))), (STOP_LAND, V((0.18, 0.10, 0.05))),
+             (STOP_BRAKE, V((0.16, 0.10, 0.05))), (STOP_END, V((0.14, 0.10, 0.05)))]
+    headK = [(0, -0.12), (6, -0.10), (STOP_LAND, -0.26), (STOP_END, -0.22)]
+    twistK = [(0, 0.06), (6, 0.0), (STOP_END, 0.0)]
+
+    def body(f):
+        return smooth_pts(f, hipsK), tuple(smooth_pts(f, leanK)), smooth_pts(f, headK), smooth_pts(f, twistK)
+
+    # 球：第 0～2 格右手往下拍、第 4 格落地、第 9 格雙手接住、之後移到三威脅的位置
+    RELEASE, BOUNCE, CATCH = 2, 4, 9
+    B_tt = V((-0.22, -0.25, 0.96)) + Z
+    B_catch = V((-0.12, -0.33, 0.98)) + Z
+    sR_dir, dR_dir = V((-0.25, 0.55, 0.75)), V((0.1, -1.0, 0.2))      # 三威脅的握法（同 make_triple_threat）
+    sL_dir, dL_dir = V((0.75, -0.55, 0.05)), V((0, -0.2, 1.0))
+    HZ = [(0, 0.97), (RELEASE, 0.78), (5, 0.92), (STOP_END, 0.92)]
+
+    def pose_free(f, wR, wL):
+        hd, ln, ht, tw = body(f)
+        aR, aL, rR, rL = feet(f)
+        k = ease(min(1.0, max(0.0, (f - 6) / (STOP_END - 6))))   # 手肘方向從 Sprint 換成三威脅
+        P.pose(f"J{f}", hd, ln, ht, wR, wL, aR, aL, handR_dir=V((0, -1.0, -0.3)),
+               poleR=V((-0.35, 1.0, -0.25)).lerp(V((-0.6, 0.8, -0.3)), k),
+               poleL=V((0.3, 1.0, -0.3)).lerp(V((0.6, 0.6, -0.6)), k), footR=rR, footL=rL, twist=tw)
+
+    def catch_wrists(B, margin):                         # 雙手張開在球兩側，離球面 margin
+        reach = R_BALL / P.s + PALM_T + margin
+        sR, sL = sR_dir.normalized(), sL_dir.normalized()
+        dR = (dR_dir - sR * dR_dir.dot(sR)).normalized()
+        dL = (dL_dir - sL * dL_dir.dot(sL)).normalized()
+        return B + sR * reach - dR * PALM_A, B + sL * reach - dL * PALM_A, (sR, dR, sL, dL)
+
+    wR0 = V((-0.28, -0.40, 0.97)) + Z
+    wL0 = V((0.26, -0.20, 0.95)) + Z
+    zr = None
+    for f in range(STOP_END + 1):
+        if f <= RELEASE:                                 # 右手壓著球往下推
+            wR = V((-0.28, -0.40, smooth_pts(f, HZ))) + Z
+            pose_free(f, wR, wL0.lerp(catch_wrists(B_catch, 0.10)[1], ease(f / CATCH)))
+            B = P.seat(V((-0.28, -0.46, 0.8)) + Z, V((0, 0, -1)))
+            zr = B.z
+            P.key(f + 1, B)
+            continue
+        if f < CATCH:                                    # 球在空中：雙手在接球點張開等球
+            s = (f - RELEASE) / (CATCH - RELEASE)
+            if f <= BOUNCE:
+                u = (f - RELEASE) / (BOUNCE - RELEASE)
+                z = zr - (zr - (P.floor + Z.z)) * u * u
+            else:
+                tau, te = (f - BOUNCE) / FPS, (CATCH - BOUNCE) / FPS
+                vz = ((B_catch.z - P.floor - Z.z) + 4.9 * te * te) / te
+                z = P.floor + Z.z + vz * tau - 4.9 * tau * tau
+            B = V((-0.28, -0.46, 0)).lerp(B_catch.to_2d().to_3d(), ease(s)) + V((0, 0, z))
+            cR, cL, axes = catch_wrists(B_catch, 0.10 * (CATCH - f) / (CATCH - RELEASE))   # 雙手在接球點等球彈上來
+            w = ease(min(1.0, (f - RELEASE) / 3))
+            pose_free(f, wR0.lerp(cR, w), wL0.lerp(cL, ease(f / CATCH)))
+            sR, dR, sL, dL = axes
+            P.palm("hand.R", dR, -sR, w)
+            P.palm("hand.L", dL, -sL, ease(f / CATCH))
+            P.key(f + 1, B)
+            continue
+        s = (f - CATCH) / (STOP_END - CATCH)             # 接住後移到三威脅位置
+        B = B_catch.lerp(B_tt, ease(s))
+        P.hold_two(B, sR_dir, dR_dir, sL_dir, dL_dir, lambda wR, wL: pose_free(f, wR, wL))
+        P.key(f + 1, B)
+    MOVE_SPEEDS["StopJump"] = v0                         # 第 STOP_LAND 格前的推動速度；之後見 STOP_*
+
+
+CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump")
 
 
 def build_all(rig, ball, off, scale):
@@ -538,6 +675,7 @@ def build_all(rig, ball, off, scale):
              lean=(0.08, 0.04, 0.02), head=-0.07, arm_y=0.16, arm_z=-0.06)
     make_run(P, "Run", N=12, S=0.34, Y=0.30, lift=0.24, toe=0.50, hips_z=-0.12, bob=0.025,
              lean=(0.16, 0.07, 0.03), head=-0.15, arm_y=0.24, arm_z=-0.12)
+    make_stop_jump(P)
     for obj in (rig, ball):
         ad = obj.animation_data
         for tr in list(ad.nla_tracks):
