@@ -1233,7 +1233,8 @@ def make_defense(P):
     """防守站姿（循環 24 格）：雙腳比肩寬、左腳略前，深蹲、上身挺直、抬頭看前方；
     左手舉高（干擾投籃）、右手往外低伸（擋傳球路線），身體輕微上下彈動。原地，無球。"""
     P.new_action("Defense")
-    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    # 左手舉過頭時套用 HINGE_ROLL_L 會讓上臂扭轉約 125°，肩膀後側凹陷、上臂彎曲變形，所以只套用右手
+    P.hinge_roll[".R"] = HINGE_ROLL_R
     Z = P.Z
     aR = P.ankle_rest(".R") + V((-0.16, 0.05, 0))
     aL = P.ankle_rest(".L") + V((0.16, -0.05, 0))

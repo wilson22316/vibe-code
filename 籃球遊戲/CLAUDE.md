@@ -47,7 +47,7 @@ D:\Blender\blender.exe --background --python blender\scripts\build_athlete.py --
   - 骨架沒有前臂扭轉骨：手繞前臂軸的扭轉有一半改由前臂承擔（`Poser.distribute_twist`），手腕才不會扭成糖果紙。
   - 沒持球的手掌心朝身體（`Poser.palm_inward`；Sprint、DribbleWalk 的左手，Jog、Run 雙手，StopJump、Layup 開頭的左手）。
   - 投籃動作（Shoot、SetShot、Layup）的左手只做兩件事：出手前掌心貼在球的左側，出手後直接放下（`drop_left`）。放下時以肩膀為圓心，手腕相對肩膀的方向經身體前側斜下方（`DROP_MID`）轉到 Idle 位置，依轉過的角度緩入緩出、中途不停；途中手臂和 Idle 一樣微彎（彎太多像端盤子、打直太僵）。直接在世界座標內插會貼著臉直直掉下來。手的方向：手指順著前臂、掌心垂直於手肘彎曲面朝身體（`natural_palm`，手垂下時朝大腿、前臂水平時拇指朝上），5 格內從扶球的方向轉過去（`relax_left`、`LEFT_RELAX`）。只把手腕轉回和 Idle 相同的相對轉動不行：放下途中前臂扭轉會變，掌心會朝外或朝上（外翻）。
-  - IK 的骨頭扭轉是「從靜止姿勢轉最少」（`Poser.aim`），和手肘實際的彎曲軸無關，手臂舉過頭時會漂掉一百多度，手腕得扭很大。投籃動作的左手臂設定 `P.hinge_roll[".L"] = HINGE_ROLL_L`，上臂、前臂繞自己的軸轉到和彎曲軸保持 Idle 的角度（`Poser.two_bone`；`new_action` 會清掉）。只套用在手臂：腿也用 `two_bone`、後綴同樣是 .L/.R，大腿跟著轉一百多度會讓短褲嚴重扭曲變形。第 3 階段的新動作（Pass 起）雙手都套用（右手 `HINGE_ROLL_R`），手的方向用 `turn_hand`／`natural_palm(P, sfx)`。第 1、2 階段的其他動作還沒套用，之後手腕扭轉有問題可以比照。
+  - IK 的骨頭扭轉是「從靜止姿勢轉最少」（`Poser.aim`），和手肘實際的彎曲軸無關，手臂舉過頭時會漂掉一百多度，手腕得扭很大。投籃動作的左手臂設定 `P.hinge_roll[".L"] = HINGE_ROLL_L`，上臂、前臂繞自己的軸轉到和彎曲軸保持 Idle 的角度（`Poser.two_bone`；`new_action` 會清掉）。只套用在手臂：腿也用 `two_bone`、後綴同樣是 .L/.R，大腿跟著轉一百多度會讓短褲嚴重扭曲變形。第 3 階段的新動作（Pass 起）雙手都套用（右手 `HINGE_ROLL_R`；例外：Defense 的左手、Dunk 的右手舉過頭時上臂會扭一百多度、肩膀凹陷變形，不套用），手的方向用 `turn_hand`／`natural_palm(P, sfx)`。第 1、2 階段的其他動作還沒套用，之後手腕扭轉有問題可以比照。
   - `distribute_twist` 的扭轉角取最接近上一格的值（不換到 ±180° 的另一邊），否則前臂分到的扭轉會在一格內翻轉將近 180°。
   - 手腕彎曲（手指偏離前臂方向）最多 75°（`WRIST_MAX_BEND`，`Poser.palm` 自動套用），超過就往前臂方向收回，持球時球再依手的位置貼上。
   - 出手後的收尾：先壓腕停留（世界方向），之後手腕「相對前臂」轉回結束姿勢；放下手臂時手肘經過朝下再轉回朝後，手腕沿身體前方劃弧往下。收尾用 `spline_pts`（經過關鍵點不停頓）；`smooth_pts` 每個關鍵點都會停一下，用在收尾會變成兩段式。直接在世界方向內插或讓手肘停在朝前，手放下時手腕會反折、變成手叉腰。
