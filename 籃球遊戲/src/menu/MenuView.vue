@@ -95,7 +95,7 @@ onBeforeUnmount(() => {
   <p v-if="status" class="status">{{ status }}</p>
 
   <main class="menu">
-    <h1 class="title">バスケ！<span class="subtitle">籃球遊戲</span></h1>
+    <h1 class="title">バスケ！</h1>
 
     <nav v-if="screen === 'main'" class="panel items">
       <button
@@ -186,8 +186,6 @@ onBeforeUnmount(() => {
 }
 
 .title {
-  display: flex;
-  flex-direction: column;
   margin: 0;
   color: #ffd98a;
   font-size: clamp(44px, 9vw, 76px);
@@ -201,16 +199,6 @@ onBeforeUnmount(() => {
     0 5px 0 #e0733f,
     0 8px 0 #4a3326,
     0 0 28px rgba(255, 190, 110, 0.55);
-}
-
-.subtitle {
-  margin-top: 6px;
-  color: #fcf9f2;
-  font-size: 0.32em;
-  font-style: normal;
-  letter-spacing: 0.4em;
-  -webkit-text-stroke: 1px #4a3326;
-  text-shadow: 0 2px 0 #4a3326;
 }
 
 .panel {
