@@ -12,10 +12,12 @@ const START_SCORE = { home: 86, away: 87 }
 const GAME_CLOCK = 120 // 第四節剩下的秒數，倒數到 0 再重來
 const SHOT_CLOCK = 24
 
-// 選單項目：to 是要切到的畫面；soon 表示還沒做好（顯示「即將推出」、不能點）
+const emit = defineEmits(['start'])
+
+// 選單項目：to 是要切到的畫面；play 是要開始的遊戲畫面；soon 表示還沒做好（顯示「即將推出」、不能點）
 const MAIN_ITEMS = [
   { label: '開始遊戲', to: 'modes' },
-  { label: '練習模式', soon: true },
+  { label: '練習模式', play: 'practice' },
   { label: '教學模式', soon: true },
   { label: '隊伍配色', to: 'colors' },
   { label: '操作說明', to: 'controls' },
@@ -25,13 +27,13 @@ const MODES = [
   { label: '3 對 3', note: '半場', soon: true },
   { label: '5 對 5', note: '全場', soon: true },
 ]
-// 暫定的按鍵配置，做練習模式時再確定
+// 按鍵配置；投籃、傳球還沒做好（見 TODO.md）
 const KEYS = [
-  ['W A S D／方向鍵', '移動'],
-  ['Shift', '衝刺'],
+  ['方向鍵', '移動'],
+  ['A', '衝刺（按住）'],
   ['空白鍵', '投籃（按住蓄力、放開出手；衝到籃下自動上籃或灌籃）'],
-  ['E', '傳球'],
-  ['Q', '切換操控的球員'],
+  ['D', '請隊友傳球'],
+  ['F', '傳球'],
   ['空白鍵（防守時）', '跳起封阻、搶籃板'],
   ['Esc', '暫停／返回'],
 ]
@@ -75,7 +77,9 @@ function tick() {
 }
 
 function open(item) {
-  if (!item.soon) screen.value = item.to
+  if (item.soon) return
+  if (item.play) emit('start', item.play)
+  else screen.value = item.to
 }
 
 function back() {
@@ -218,7 +222,7 @@ onBeforeUnmount(() => {
           <td>{{ action }}</td>
         </tr>
       </table>
-      <p class="note">按鍵配置是暫定的，做練習模式時再確定。</p>
+      <p class="note">目前練習模式只能移動和衝刺，投籃、傳球之後加上。</p>
       <button type="button" class="back" @click="back">返回</button>
     </section>
   </main>
