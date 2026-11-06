@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BALL, BLOCK, COURT, HIT, HUMAN_SIDES, POWER } from '../config.js';
 import { JUMP_PEAK, jumpToReach } from '../entities/player.js';
-import { input } from '../input/keyboard.js';
+import { inputFor } from '../input/keyboard.js';
 import {
   isInCourt,
   predictCrossing,
@@ -44,6 +44,11 @@ const ATTEMPTS = {
   3: [['spike', HIT.heights.spike], ['free', HIT.heights.set], ['free', HIT.heights.bump]],
 };
 
+// 得分時的結果字：reason 如「界內」；win：看畫面的這位玩家得分（連線的客人收到得分時也用）
+export function resultText(reason, win) {
+  return `${reason}・${win ? '我方得分！' : '對手得分'}`;
+}
+
 // 一球的來回：預測下一次誰在哪裡碰球、判定按鍵時機、執行擊球、判定得分。
 // 球路是確定性的，所以每次擊球後就能算出下一次觸球的精確位置與時間（plan）。
 export class Rally {
@@ -61,7 +66,7 @@ export class Rally {
     this.time = 0;
     this.energy = { 1: 0, [-1]: 0 };
     this.armed = { 1: false, [-1]: false }; // 能量滿、已按 A，等著下一次扣球
-    this.spikeAim = null; // 玩家這次扣球選的落點格子 { col, row }
+    this.spikeAim = null; // 玩家這次扣球選的落點格子 { side, col, row }
     this.ballState = null; // 'spike' | 'power'：球正在扣球飛行中（特效用）
     this.noPlays = false; // 練習用：這一球之後沒有人再碰球
     this.resetEnergy();
@@ -132,28 +137,31 @@ export class Rally {
     return HUMAN_SIDES.includes(side);
   }
 
-  // 每幀呼叫一次：處理按鍵
+  // 每幀呼叫一次：處理按鍵（每一隊玩家讀自己的輸入來源）
   update() {
     if (this.state !== 'live') return;
-    if (input.wasPressed('action')) this.press();
+    for (const side of HUMAN_SIDES) if (inputFor(side).wasPressed('action')) this.press(side);
     this.updateSpikeAim();
   }
 
   // 玩家扣球前用方向鍵選落點：左右選邊、上＝深球、下＝短球（選了就記住，不用一直按著）
+  // 鏡頭在自己那隊後面：-z 那隊看出去左右相反
   updateSpikeAim() {
     const aim = this.spikeAim;
     if (!aim) return;
-    const dx = (input.wasPressed('right') ? 1 : 0) - (input.wasPressed('left') ? 1 : 0);
+    const input = inputFor(aim.side);
+    const dx = aim.side * ((input.wasPressed('right') ? 1 : 0) - (input.wasPressed('left') ? 1 : 0));
     const dy = (input.wasPressed('up') ? 1 : 0) - (input.wasPressed('down') ? 1 : 0);
     aim.col = THREE.MathUtils.clamp(aim.col + dx, 0, SPIKE_ZONE_X.length - 1);
     aim.row = THREE.MathUtils.clamp(aim.row + dy, 0, SPIKE_ZONE_DEPTH.length - 1);
   }
 
-  // 扣球瞄準標記的位置 { x, z }；沒在瞄準時回傳 null
-  getSpikeTarget() {
+  // side 那隊玩家的扣球瞄準標記位置 { x, z }；沒在瞄準時回傳 null（對手看不到你瞄哪裡）
+  getSpikeTarget(side = HUMAN_SIDES[0]) {
     const plan = this.plan;
-    if (!this.spikeAim || !plan || plan.type !== 'spike') return null;
-    return { x: SPIKE_ZONE_X[this.spikeAim.col], z: -plan.side * SPIKE_ZONE_DEPTH[this.spikeAim.row] };
+    const aim = this.spikeAim;
+    if (!aim || aim.side !== side || !plan || plan.type !== 'spike') return null;
+    return { x: SPIKE_ZONE_X[aim.col], z: -side * SPIKE_ZONE_DEPTH[aim.row] };
   }
 
   // 固定步長呼叫：推進球與判定
@@ -216,7 +224,7 @@ export class Rally {
       if (type === 'spike') {
         this.plan.block = this.makeBlock(this.plan);
         // 玩家扣球：預設瞄斜線（對角）、中間深度
-        if (this.isHuman(side)) this.spikeAim = { col: point.x > 0 ? 0 : SPIKE_ZONE_X.length - 1, row: 1 };
+        if (this.isHuman(side)) this.spikeAim = { side, col: point.x > 0 ? 0 : SPIKE_ZONE_X.length - 1, row: 1 };
         // AI 在這時就決定要不要用強力擊球：提前開啟，氣場才來得及冒出來，當作給玩家的警告
         else if (this.energy[side] >= POWER.maxEnergy && aiWantsPower(this.plan.grade)) this.armed[side] = true;
       }
@@ -237,13 +245,13 @@ export class Rally {
     return block;
   }
 
-  // 目前要給玩家看的時機提示：{ x, z, timeLeft } 或 null
-  getCue() {
+  // 目前要給 side 那隊玩家看的時機提示：{ x, z, timeLeft } 或 null
+  getCue(side = HUMAN_SIDES[0]) {
     const plan = this.plan;
-    if (this.state !== 'live' || !plan) return null;
-    if (this.isHuman(plan.side)) return { x: plan.point.x, z: plan.point.z, timeLeft: plan.time - this.time };
+    if (this.state !== 'live' || !plan || !this.isHuman(side)) return null;
+    if (plan.side === side) return { x: plan.point.x, z: plan.point.z, timeLeft: plan.time - this.time };
     const block = plan.block;
-    if (block && !block.grade && this.isHuman(block.blocker.team.side)) {
+    if (block && !block.grade && block.blocker.team.side === side) {
       return { x: block.blocker.pos.x, z: block.blocker.pos.z, timeLeft: block.idealTime - this.time };
     }
     return null;
@@ -261,13 +269,14 @@ export class Rally {
     plan.grade = aiHitGrade(plan.hardBall, this.lastGrade, this.lastPower);
   }
 
-  press() {
+  // side 那隊的玩家按下擊球鍵
+  press(side) {
     const plan = this.plan;
     if (!plan) return;
 
     // 對方扣球前：攔網起跳
     const block = plan.block;
-    if (block && !block.grade && this.isHuman(block.blocker.team.side)) {
+    if (block && !block.grade && block.blocker.team.side === side) {
       const grade = gradeTiming(block.idealTime - this.time);
       if (!grade) return;
       block.grade = grade;
@@ -275,7 +284,7 @@ export class Rally {
       return;
     }
 
-    if (!this.isHuman(plan.side) || plan.grade) return;
+    if (plan.side !== side || plan.grade) return;
     const early = plan.time - this.time; // 正數：提早按
     const grade = gradeTiming(early, plan.windowScale);
     if (!grade) return; // 太早，當作沒按，可以再按一次
@@ -331,7 +340,7 @@ export class Rally {
       plan.hitter.playDive(plan.point.x, plan.point.z);
       this.plan = null;
     } else if (this.time >= plan.time + HIT.windows.bad) {
-      this.hud.showJudge('miss');
+      this.judge(plan.side, 'miss');
       this.plan = null;
     }
   }
@@ -350,7 +359,7 @@ export class Rally {
       const canDive = plan.point.y < DIVE_MAX_HEIGHT;
       if (canDive) hitter.playDive(stand.x, stand.z);
       if (!canDive || dist > HIT.reach + DIVE_RANGE) {
-        if (this.isHuman(side)) this.hud.showJudge('far');
+        this.judge(side, 'far');
         return;
       }
       grade = DOWNGRADE[grade];
@@ -370,12 +379,19 @@ export class Rally {
       hitter.applyReach();
       hitter.playAction(type === 'spike' ? 'spike' : plan.point.y < 1.5 ? 'bump' : 'set');
     }
-    if (this.isHuman(side)) this.hud.showJudge(dove ? 'dive' : power && grade !== 'bad' ? 'power' : grade);
+    this.judge(side, dove ? 'dive' : power && grade !== 'bad' ? 'power' : grade);
     this.onEvent('hit', { type, grade, power, hitter, side, human: this.isHuman(side), pos: contact });
 
     if (type === 'spike' && this.tryBlock(plan)) return;
     this.touched(hitter, type, grade, plan.touch, power);
     if (type === 'spike') this.ballState = power ? 'power' : 'spike';
+  }
+
+  // 擊球判定字只給那一隊的玩家看：這台裝置的玩家直接顯示，連線時對方的交給 onEvent 轉送
+  judge(side, grade) {
+    if (!this.isHuman(side)) return;
+    if (side === HUMAN_SIDES[0]) this.hud.showJudge(grade);
+    else this.onEvent('judge', { side, grade });
   }
 
   // 已開啟（玩家按 A，或 AI 在扣球前決定）就用掉：能量歸零
@@ -439,7 +455,7 @@ export class Rally {
       velocityToTarget(ball.pos, target, cross.y + 1.5, ball.vel);
     }
 
-    if (this.isHuman(blocker.team.side)) this.hud.showJudge('block');
+    this.judge(blocker.team.side, 'block');
     this.onEvent('block', { grade, human: this.isHuman(blocker.team.side), pos: ball.pos.clone() });
     // 攔網不算三次觸球之一，對方重新算三次
     this.touched(blocker, 'block', grade, 0);
@@ -511,8 +527,8 @@ export class Rally {
       reason = '出界';
     }
 
-    const humanWins = this.isHuman(-loser);
-    this.hud.showResult({ text: `${reason}・${humanWins ? '我方得分！' : '對手得分'}`, good: humanWins });
+    const humanWins = -loser === HUMAN_SIDES[0];
+    this.hud.showResult({ text: resultText(reason, humanWins), good: humanWins });
     this.plan = null;
     this.clearReach();
     this.state = 'dead';

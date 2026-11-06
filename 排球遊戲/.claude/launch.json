@@ -6,6 +6,18 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5173", "--strictPort"],
       "port": 5173
+    },
+    {
+      "name": "lan",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "lan"],
+      "port": 8090
+    },
+    {
+      "name": "lan-server",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "lan:server"],
+      "port": 8090
     }
   ]
 }

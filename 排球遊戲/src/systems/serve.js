@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BALL, COURT, HUMAN_SIDES } from '../config.js';
 import { JUMP_PEAK, jumpToReach } from '../entities/player.js';
-import { input } from '../input/keyboard.js';
+import { inputFor } from '../input/keyboard.js';
 import { aiServePower } from './ai.js';
 import { velocityToTarget } from './ballPhysics.js';
 
@@ -48,6 +48,7 @@ export class ServeController {
     server.resetTo(this.spot.x + s * SERVER_OFFSET_X, this.spot.z + s * SERVER_OFFSET_Z);
 
     const human = HUMAN_SIDES.includes(s);
+    this.local = s === HUMAN_SIDES[0]; // 這台裝置的玩家發球：瞄準標記、力道條只給發球的人看
     this.state = human ? 'ready' : 'ai';
     this.aiTimer = AI_SERVE_DELAY;
     this.charge = 0;
@@ -55,7 +56,7 @@ export class ServeController {
     this.ball.vel.set(0, 0, 0);
     this.hud.setPower(null);
     this.hud.showResult(null);
-    this.aimMarker.visible = human;
+    this.aimMarker.visible = this.local;
   }
 
   update(dt) {
@@ -72,6 +73,7 @@ export class ServeController {
 
     if (this.state === 'ready' || this.state === 'charging') this.updateAim(dt);
 
+    const input = inputFor(this.side);
     if (this.state === 'ready' && input.wasPressed('action')) {
       this.state = 'charging';
       this.chargeTime = 0;
@@ -81,7 +83,7 @@ export class ServeController {
       this.chargeTime += dt;
       const phase = (this.chargeTime / CHARGE_TIME) % 2;
       this.charge = phase <= 1 ? phase : 2 - phase;
-      this.hud.setPower(this.charge);
+      if (this.local) this.hud.setPower(this.charge);
       if (input.wasReleased('action')) this.launch(this.charge);
     }
   }
@@ -100,8 +102,10 @@ export class ServeController {
     this.hud.setPower(null);
   }
 
+  // 鏡頭在自己那隊後面：-z 那隊看出去左右相反
   updateAim(dt) {
-    const dir = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
+    const input = inputFor(this.side);
+    const dir = this.side * ((input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0));
     this.aimX = THREE.MathUtils.clamp(this.aimX + dir * AIM_SPEED * dt, -AIM_LIMIT, AIM_LIMIT);
     this.aimMarker.position.set(this.aimX, 0.02, -this.side * (COURT.length / 4));
   }

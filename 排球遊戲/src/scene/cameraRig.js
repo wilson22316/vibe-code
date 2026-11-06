@@ -32,6 +32,7 @@ export class CameraRig {
     });
     this.controls.autoRotateSpeed = ORBIT_SPEED;
     this.presetIndex = 0;
+    this.side = 1; // 鏡頭在哪一隊後面：預設視角都是以 home（+z）為準，-1 時整個轉 180 度（連線對戰的客人）
     this.transition = null;
     this.cinematic = null; // 衝擊特寫：暫時接管鏡頭
     this.orbiting = false; // 主畫面繞場中
@@ -76,6 +77,11 @@ export class CameraRig {
     this.controls.enabled = false; // 特寫期間滑鼠不能轉，避免把鏡頭拉離特寫
   }
 
+  // 換到 side 那隊後面（下一次套用預設視角時生效）
+  setSide(side) {
+    this.side = side;
+  }
+
   get presetName() {
     return CAMERA_PRESETS[this.presetIndex].name;
   }
@@ -88,7 +94,13 @@ export class CameraRig {
   applyPreset(index, instant = false, duration = TRANSITION_TIME) {
     this.presetIndex = index;
     const { position, target } = CAMERA_PRESETS[index];
-    this.moveTo(new THREE.Vector3(...position), new THREE.Vector3(...target), instant, duration);
+    const s = this.side;
+    this.moveTo(
+      new THREE.Vector3(position[0] * s, position[1], position[2] * s),
+      new THREE.Vector3(target[0] * s, target[1], target[2] * s),
+      instant,
+      duration,
+    );
   }
 
   // 鏡頭平滑移到 toPos、看著 toTarget（instant：直接跳過去）

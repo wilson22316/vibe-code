@@ -39,6 +39,7 @@ const energyEls = {
   [-1]: document.getElementById('energy-away'),
 };
 let energyKey = '';
+let view = 1; // 從哪一隊的角度顯示「我方／對手」（連線對戰的客人是 -1）
 
 // 重新觸發 CSS 動畫
 export function replay(el, className) {
@@ -48,13 +49,21 @@ export function replay(el, className) {
 }
 
 export const hud = {
-  // energy、armed：{ 1: 我方, -1: 對手 }；只有數值變了才更新畫面
+  // 記分板、能量條、結束畫面從 side 那隊的角度顯示（左邊「我方」是 side）；其他函式傳進來的資料一律以 home = 1 為準
+  setViewSide(side) {
+    view = side;
+    energyKey = '';
+  },
+
+  // energy、armed：{ 1: home, -1: away }；只有數值變了才更新畫面
   setEnergy(energy, armed, max) {
-    const key = `${energy[1]},${energy[-1]},${armed[1]},${armed[-1]}`;
+    const key = `${view},${energy[1]},${energy[-1]},${armed[1]},${armed[-1]}`;
     if (key === energyKey) return;
     energyKey = key;
-    for (const side of [1, -1]) {
-      const el = energyEls[side];
+    for (const slot of [1, -1]) {
+      // slot：1 是左邊「我方」那組格子、-1 是右邊對手
+      const el = energyEls[slot];
+      const side = slot * view;
       const cells = el.querySelector('.cells');
       if (cells.children.length !== max) cells.innerHTML = '<div class="cell"></div>'.repeat(max);
       [...cells.children].forEach((c, i) => c.classList.toggle('on', i < energy[side]));
@@ -62,7 +71,7 @@ export const hud = {
       el.classList.toggle('full', full && !armed[side]);
       el.classList.toggle('armed', armed[side]);
       const label = el.querySelector('.energy-label');
-      if (side > 0) label.textContent = armed[side] ? '強力擊球準備！（A 取消）' : full ? '按 A 強力擊球！' : '';
+      if (slot > 0) label.textContent = armed[side] ? '強力擊球準備！（A 取消）' : full ? '按 A 強力擊球！' : '';
       else label.textContent = full ? '對手能量滿！' : '';
     }
   },
@@ -109,11 +118,11 @@ export const hud = {
     replay(tutorialEl, 'show');
   },
 
-  // 比賽開場動畫（我方 VS 對手 → READY? → GO!）：levelLabel 為對手難度；傳 null 隱藏
-  showIntro(levelLabel) {
-    introEl.hidden = levelLabel === null;
-    if (levelLabel === null) return;
-    introEl.querySelector('.intro-level').textContent = `對手難度：${levelLabel}`;
+  // 比賽開場動畫（我方 VS 對手 → READY? → GO!）：subtitle 為 VS 下面那行（例如「對手難度：普通」）；傳 null 隱藏
+  showIntro(subtitle) {
+    introEl.hidden = subtitle === null;
+    if (subtitle === null) return;
+    introEl.querySelector('.intro-level').textContent = subtitle;
     replay(introEl, 'show');
   },
 
@@ -141,12 +150,12 @@ export const hud = {
     replay(toastEl, 'show');
   },
 
-  // score：{ 1: home 分數, -1: away 分數 }；servingSide：1 或 -1
+  // score：{ 1: home 分數, -1: away 分數 }；servingSide：1 或 -1（左邊「我方」顯示 setViewSide 那隊）
   setScore(score, servingSide) {
-    scoreHome.textContent = score[1];
-    scoreAway.textContent = score[-1];
-    teamHome.classList.toggle('serving', servingSide > 0);
-    teamAway.classList.toggle('serving', servingSide < 0);
+    scoreHome.textContent = score[view];
+    scoreAway.textContent = score[-view];
+    teamHome.classList.toggle('serving', servingSide === view);
+    teamAway.classList.toggle('serving', servingSide === -view);
   },
 
   // { win, score }；傳 null 隱藏
@@ -156,7 +165,7 @@ export const hud = {
     result.hidden = true;
     gameOver.classList.toggle('lose', !data.win);
     gameOverTitle.textContent = data.win ? '你贏了！' : '對手獲勝';
-    gameOverScore.textContent = `${data.score[1]} : ${data.score[-1]}`;
+    gameOverScore.textContent = `${data.score[view]} : ${data.score[-view]}`;
   },
 
   // value 為 0~1；傳 null 隱藏

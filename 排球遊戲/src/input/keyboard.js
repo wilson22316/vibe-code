@@ -51,3 +51,41 @@ export const input = {
     released.clear();
   },
 };
+
+// 網路送來的按鍵（連線對戰時，主機用它讀客人的操作），用法跟 input 一樣
+export function createRemoteInput() {
+  const rDown = new Set();
+  const rPressed = new Set();
+  const rReleased = new Set();
+  return {
+    isDown: (action) => rDown.has(action),
+    wasPressed: (action) => rPressed.has(action),
+    wasReleased: (action) => rReleased.has(action),
+    // 收到對方的按鍵：isDown 為按下或放開
+    receive(action, isDown) {
+      if (isDown) {
+        if (!rDown.has(action)) rPressed.add(action);
+        rDown.add(action);
+      } else {
+        rDown.delete(action);
+        rReleased.add(action);
+      }
+    },
+    endFrame() {
+      rPressed.clear();
+      rReleased.clear();
+    },
+  };
+}
+
+// 每一隊由哪個輸入來源操作：預設都是本機鍵盤；連線對戰時客人那隊換成網路送來的按鍵（source 傳 null 換回本機）
+const sideInputs = {};
+
+export function setSideInput(side, source) {
+  if (source) sideInputs[side] = source;
+  else delete sideInputs[side];
+}
+
+export function inputFor(side) {
+  return sideInputs[side] ?? input;
+}
