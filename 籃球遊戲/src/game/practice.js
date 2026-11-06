@@ -11,7 +11,7 @@ import { MOVE_SPEEDS, NIGHT_BASKET_Z } from '../gallery/scene.js'
 // （倍數太大時跑步動作會變得很急促）。
 export const SPRINT_SPEED_SCALE = 1.5
 // 運球走路的速度倍數：1 是動作原本的 0.979 m/s，和衝刺一樣連動作播放速度一起乘
-export const WALK_SPEED_SCALE = 1.4
+export const WALK_SPEED_SCALE = 2
 // 投籃：仰角（離籃框 2 m 內用 NEAR、6 m 外用 FAR，中間線性變化；近距離弧度太平的話球進框的角度太斜，
 // 會一直彈框）、出手速度範圍（CLAUDE.md：4～13 m/s）、蓄力條從 0 到滿的秒數
 const SHOT_ANGLE_NEAR = 62
