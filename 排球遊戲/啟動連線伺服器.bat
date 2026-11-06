@@ -15,7 +15,8 @@ if errorlevel 1 (
 
 if not exist "node_modules\ws" (
   echo 第一次執行：安裝需要的套件...
-  call npm install --omit=dev
+  rem 不能加 --omit=dev：會把打包用的 vite 刪掉，npm run build 就不能用了
+  call npm install
 )
 
 node server\lan.js --ws-only
