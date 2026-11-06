@@ -99,6 +99,8 @@ const MOVE_SPEEDS = {
   // 上籃：第 11 格起跳前 Sprint 速度，空中 1.895，第 22 格落地後 4 格線性降到 0（athlete_anims.py 的 LAY）
   Layup: (t) => (t < 11 / 24 ? 2.843 : 1.895 * Math.min(1, Math.max(0, (26 / 24 - t) / (4 / 24)))),
   DefenseSlide: 1.289,
+  // 灌籃：第 11 格起跳前 Sprint 速度，空中 1.516，第 35 格落地後 4 格線性降到 0（athlete_anims.py 的 DUNK）
+  Dunk: (t) => (t < 11 / 24 ? 2.843 : 1.516 * Math.min(1, Math.max(0, (39 / 24 - t) / (4 / 24)))),
 }
 // 推動方向：預設往前（+Z）；列在這裡的往角色左邊（+X）
 const SIDE_MOVES = new Set(['DefenseSlide'])
@@ -107,7 +109,7 @@ const RUN_HALF = 2
 const DEFAULT_CLIP = 'Idle'
 // 淡入淡出秒數，沿用 reference 原型的 0.35 s
 const FADE_SECONDS = 0.35
-const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup', 'Pass', 'Catch', 'Rebound'])
+const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup', 'Pass', 'Catch', 'Rebound', 'Dunk', 'Celebrate', 'Frustrated'])
 
 export function createGallery(container) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
