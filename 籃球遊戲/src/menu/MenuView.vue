@@ -3,10 +3,11 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createGallery } from '../gallery/scene.js'
 import { DEFAULT_COLORS, KITS, loadColors, saveColors } from './teamColors.js'
 
-// 主畫面背景：角色在畫面右側原地運球，鏡頭固定（不能拖曳）
+// 主畫面背景：夜晚球場，角色在畫面右側原地運球、籃框在後方，鏡頭固定（不能拖曳）
 const BACKDROP = {
+  setting: 'night-court',
   clip: 'Dribble',
-  view: { position: { x: -0.35, y: 1.15, z: 3.6 }, target: { x: -0.75, y: 0.85, z: 0 } },
+  view: { position: { x: -0.6, y: 1.1, z: 5.2 }, target: { x: -1.2, y: 1.55, z: -1 } },
 }
 
 // 選單項目：to 是要切到的畫面；soon 表示還沒做好（顯示「即將推出」、不能點）
@@ -69,7 +70,7 @@ function onKey(event) {
 }
 
 onMounted(() => {
-  backdrop = createGallery(stage.value, { interactive: false, clip: BACKDROP.clip, view: BACKDROP.view })
+  backdrop = createGallery(stage.value, { interactive: false, ...BACKDROP })
   backdrop.setTeamColors(colors.value)
   backdrop.ready.then(
     () => {
@@ -94,7 +95,7 @@ onBeforeUnmount(() => {
   <p v-if="status" class="status">{{ status }}</p>
 
   <main class="menu">
-    <h1 class="title">籃球遊戲</h1>
+    <h1 class="title">バスケ！<span class="subtitle">籃球遊戲</span></h1>
 
     <nav v-if="screen === 'main'" class="panel items">
       <button
@@ -185,13 +186,31 @@ onBeforeUnmount(() => {
 }
 
 .title {
+  display: flex;
+  flex-direction: column;
   margin: 0;
-  color: #fcf9f2;
-  font-size: clamp(36px, 7vw, 56px);
-  letter-spacing: 0.08em;
-  -webkit-text-stroke: 2px #4a3326;
+  color: #ffd98a;
+  font-size: clamp(44px, 9vw, 76px);
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  -webkit-text-stroke: 3px #4a3326;
   paint-order: stroke fill;
-  text-shadow: 0 4px 0 #4a3326;
+  /* 夜色裡用橘色的立體陰影加暖光，深色描邊才不會被背景吃掉 */
+  text-shadow:
+    0 5px 0 #e0733f,
+    0 8px 0 #4a3326,
+    0 0 28px rgba(255, 190, 110, 0.55);
+}
+
+.subtitle {
+  margin-top: 6px;
+  color: #fcf9f2;
+  font-size: 0.32em;
+  font-style: normal;
+  letter-spacing: 0.4em;
+  -webkit-text-stroke: 1px #4a3326;
+  text-shadow: 0 2px 0 #4a3326;
 }
 
 .panel {

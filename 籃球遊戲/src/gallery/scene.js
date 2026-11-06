@@ -2,7 +2,8 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { createGrass, createSky } from './backdrop.js'
+import { NIGHT_GROUND, createFloodlights, createGrass, createNightSky, createSky } from './backdrop.js'
+import { createCourt } from '../game/court.js'
 
 const MODEL_URL = `${import.meta.env.BASE_URL}models/athlete_game.glb`
 
@@ -114,15 +115,79 @@ const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup', 'Pass', 'Ca
 // 隊伍配色會換的材質（見 CLAUDE.md）
 const TEAM_MATERIALS = { shirt: 'Athlete_Shirt', shorts: 'Athlete_Shorts' }
 
-// options：interactive 是否能拖曳旋轉鏡頭；clip 一開始播的動作；view 鏡頭位置與注視點（主畫面背景用）
-export function createGallery(container, { interactive = true, clip = DEFAULT_CLIP, view = null } = {}) {
+// 夜晚球場（主畫面）：籃框在角色後方 4.2 m（罰球線附近），照明燈在球場四角
+const NIGHT_BASKET_Z = -4.2
+const FLOODLIGHTS = [[-9.5, -7.5], [9.5, -7.5], [-9.5, 9], [9.5, 9]]
+const NIGHT_HEMI = { sky: 0x6f78b8, ground: 0x2e3440, intensity: 0.45 * Math.PI }
+const SPOT = { color: 0xffe2b0, intensity: 0.95 * Math.PI, position: [-4.5, 8, 7] }
+const RIM_LIGHT = { color: 0x9fb4ff, intensity: 0.55 * Math.PI, position: [3, 5, -6] }
+
+// 白天草地（展示館）：藍天白雲、草地圓盤、只顯示陰影的圓盤
+function addMeadow(scene) {
+  scene.background = createSky()
+  scene.add(new THREE.HemisphereLight(SKY_COLOR, GROUND_COLOR, HEMI_INTENSITY))
+  const sun = new THREE.DirectionalLight(SUN_COLOR, SUN_INTENSITY)
+  sun.position.set(-2.5, 5, 3.5)
+  sun.castShadow = true
+  sun.shadow.mapSize.set(1024, 1024)
+  Object.assign(sun.shadow.camera, { left: -2, right: 2, top: 2.5, bottom: -1 })
+  sun.shadow.radius = 4
+  scene.add(sun)
+
+  scene.add(createGrass())
+
+  const shadowCatcher = new THREE.Mesh(
+    new THREE.CircleGeometry(2.4, 64),
+    new THREE.ShadowMaterial({ opacity: 0.22 }),
+  )
+  shadowCatcher.rotation.x = -Math.PI / 2
+  shadowCatcher.receiveShadow = true
+  scene.add(shadowCatcher)
+}
+
+// 夜晚球場：夜空與城市剪影、半場球場與籃架、照明燈；主光從左前上方打下來，後方一道冷色輪廓光
+function addNightCourt(scene, gradientMap, outline) {
+  scene.background = createNightSky()
+  scene.fog = new THREE.Fog(NIGHT_GROUND, 14, 34)
+  const material = (hex) => new THREE.MeshToonMaterial({ color: hex, gradientMap })
+
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 48), material(NIGHT_GROUND))
+  ground.rotation.x = -Math.PI / 2
+  ground.position.y = -0.005
+  scene.add(ground)
+  const court = createCourt({ basketZ: NIGHT_BASKET_Z, material })
+  const lights = createFloodlights({ positions: FLOODLIGHTS, material })
+  for (const group of [court, lights]) {
+    group.traverse((o) => o.isMesh && o.userData.outline && o.add(createOutline(o, outline)))
+    scene.add(group)
+  }
+
+  scene.add(new THREE.HemisphereLight(linear(NIGHT_HEMI.sky), linear(NIGHT_HEMI.ground), NIGHT_HEMI.intensity))
+  const spot = new THREE.SpotLight(linear(SPOT.color), SPOT.intensity, 0, 0.42, 0.5, 0)
+  spot.position.set(...SPOT.position)
+  spot.target.position.set(0, 0.8, -1)
+  spot.castShadow = true
+  spot.shadow.mapSize.set(2048, 2048)
+  spot.shadow.radius = 4
+  scene.add(spot, spot.target)
+  const rim = new THREE.DirectionalLight(linear(RIM_LIGHT.color), RIM_LIGHT.intensity)
+  rim.position.set(...RIM_LIGHT.position)
+  scene.add(rim)
+}
+
+// options：interactive 是否能拖曳旋轉鏡頭；clip 一開始播的動作；view 鏡頭位置與注視點；
+// setting 場景：'meadow' 白天草地（展示館）、'night-court' 夜晚球場（主畫面）
+export function createGallery(container, { interactive = true, clip = DEFAULT_CLIP, view = null, setting = 'meadow' } = {}) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
   container.appendChild(renderer.domElement)
 
   const scene = new THREE.Scene()
-  scene.background = createSky()
+  const gradientMap = createToonGradient()
+  const outline = createOutlineMaterial()
+  if (setting === 'night-court') addNightCourt(scene, gradientMap, outline)
+  else addMeadow(scene)
 
   const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 100)
   camera.position.copy(view?.position ?? HOME_POS)
@@ -137,26 +202,6 @@ export function createGallery(container, { interactive = true, clip = DEFAULT_CL
   controls.maxPolarAngle = Math.PI * 0.495
   controls.update()
 
-  scene.add(new THREE.HemisphereLight(SKY_COLOR, GROUND_COLOR, HEMI_INTENSITY))
-  const sun = new THREE.DirectionalLight(SUN_COLOR, SUN_INTENSITY)
-  sun.position.set(-2.5, 5, 3.5)
-  sun.castShadow = true
-  sun.shadow.mapSize.set(1024, 1024)
-  Object.assign(sun.shadow.camera, { left: -2, right: 2, top: 2.5, bottom: -1 })
-  sun.shadow.radius = 4
-  scene.add(sun)
-
-  // 地面：草地圓盤，上面疊一層只顯示陰影的圓盤
-  scene.add(createGrass())
-
-  const shadowCatcher = new THREE.Mesh(
-    new THREE.CircleGeometry(2.4, 64),
-    new THREE.ShadowMaterial({ opacity: 0.22 }),
-  )
-  shadowCatcher.rotation.x = -Math.PI / 2
-  shadowCatcher.receiveShadow = true
-  scene.add(shadowCatcher)
-
   // 地面格線：5 m 見方、每格 0.25 m，用來看腳有沒有打滑；預設隱藏
   const grid = new THREE.GridHelper(5, 20, 0x4a3326, 0x6f7f62)
   grid.position.y = 0.001
@@ -169,6 +214,18 @@ export function createGallery(container, { interactive = true, clip = DEFAULT_CL
     renderer.setSize(w, h)
     camera.aspect = w / h
     camera.updateProjectionMatrix()
+    coverBackground(w / h)
+  }
+
+  // 背景貼圖像 CSS 的 object-fit: cover 一樣裁切，寬螢幕時月亮、雲才不會被拉扁
+  function coverBackground(aspect) {
+    const bg = scene.background
+    const image = bg?.image
+    if (!image?.width) return
+    const ratio = image.width / image.height
+    if (aspect > ratio) bg.repeat.set(1, ratio / aspect)
+    else bg.repeat.set(aspect / ratio, 1)
+    bg.offset.set((1 - bg.repeat.x) / 2, (1 - bg.repeat.y) / 2)
   }
   const resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(container)
@@ -258,8 +315,6 @@ export function createGallery(container, { interactive = true, clip = DEFAULT_CL
   // 載入角色並播放 Idle；失敗時 ready 會 reject，由畫面顯示錯誤
   const ready = new GLTFLoader().loadAsync(MODEL_URL).then((gltf) => {
     const root = gltf.scene
-    const gradientMap = createToonGradient()
-    const outline = createOutlineMaterial()
     // 先收集再處理，免得 traverse 走進剛加上的描邊網格
     const meshes = []
     root.traverse((o) => o.isMesh && meshes.push(o))
