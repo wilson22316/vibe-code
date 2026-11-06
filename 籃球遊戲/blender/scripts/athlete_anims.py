@@ -938,13 +938,14 @@ def make_set_shot(P):
         P.key(f + 1, B_rel + V((0, -4.5, 5.4)) * (gf / FPS), 0.0)   # 球沿出手方向飛走（隱藏），縮小時不會掃過手
 
 
-LAY = dict(PUSH_R=5, PLANT_L=6, TAKEOFF=11, RELEASE=17, LAND=22, BRAKE=26, END=30)
+LAY = dict(PUSH_R=5, PLANT_L=6, TAKEOFF=11, ONE_HAND=12, RELEASE=17, LAND=22, BRAKE=26, END=30)
 LAY_AIR_SPEED = 2.0      # 縮放前；空中的水平速度
 
 
 def make_layup(P):
-    """上籃（單次 30 格）：從 Sprint 第 0 格接起。右腳那步雙手收球到右腰，左腳踩下、第 11 格左腳起跳，
-    右膝上抬，右手托球往上，第 17 格（最高點）出手，第 22 格雙腳落地煞停，第 30 格站直。
+    """上籃（單次 30 格）：從 Sprint 第 0 格接起。右腳那步雙手收球（右手托在球下、左手扶球左側），
+    左腳踩下、第 11 格左腳起跳，右膝上抬；第 12 格起左手離開球放下，只剩右手掌心朝上托著球往上送，
+    第 17 格（最高點）手臂伸直出手（打板由遊戲接手），第 22 格雙腳落地煞停，第 30 格站直。
     原地動作：起跳前以 Sprint 速度推動，空中 LAY_AIR_SPEED，落地後 4 格線性降到 0。"""
     L = LAY
     P.new_action("Layup")
@@ -1008,7 +1009,7 @@ def make_layup(P):
     poleRK = [(0, V((-0.35, 1.0, -0.25))), (6, V((-0.6, 0.8, -0.3))), (11, V((-0.9, 0.0, -0.5))),
               (L["RELEASE"], V((-0.12, -1.0, -0.1))), (L["LAND"], V((-0.3, -0.3, -1.0))), (L["END"], V((-0.35, 1.0, -0.25)))]
     poleLK = [(0, V((0.3, 1.0, -0.3))), (8, V((0.6, 0.4, -0.6))), (13, V((0.7, -0.2, -0.4))),
-              (L["RELEASE"], V((0.7, -0.2, -0.4)))]       # 出手後由 drop_left 決定
+              (L["RELEASE"], V((0.7, -0.2, -0.4)))]       # 第 12 格離開球後由 drop_left 決定
     end_pL = V((0.35, 1.0, -0.25))                       # 結束和 Idle 一樣朝後
 
     def pose_body(f, wR, wL, pL=None):
@@ -1021,10 +1022,14 @@ def make_layup(P):
 
     grip_tt = GRIP_TT
     grip_lay = (V((0.05, 0.40, -0.92)), V((0, 0.92, 0.40)), V((1.0, -0.1, 0.1)), V((0, -0.1, 1.0)))
-    # 球心（不含跳躍高度）：第 3 格起雙手持球（右手托在球下、左手扶在球左側）到出手；第 3 格的位置在第 2 格算出後補上
-    ballK = [(3, None), (L["PUSH_R"], V((-0.18, -0.26, 1.00))), (9, V((-0.16, -0.27, 1.08))),
-             (L["TAKEOFF"], V((-0.14, -0.28, 1.25))), (13, V((-0.13, -0.31, 1.55))),
-             (15, V((-0.13, -0.34, 1.84))), (L["RELEASE"], V((-0.12, -0.37, 1.97)))]
+    # 雙手持球（第 3～12 格）的球心，不含跳躍高度；第 3 格的位置在第 2 格算出後補上。
+    # 球要離身體夠遠（y ≤ -0.32），否則收球時會陷進肚子
+    ballK = [(3, None), (L["PUSH_R"], V((-0.18, -0.32, 1.00))), (9, V((-0.16, -0.34, 1.08))),
+             (L["TAKEOFF"], V((-0.14, -0.34, 1.25))), (L["ONE_HAND"], V((-0.14, -0.35, 1.36)))]
+    # 單手（第 12～17 格）：右手托在球的後下方（手腕往後折、掌心朝前上方），手臂往前上方伸直，把球往上送去打板。
+    # 掌心朝天（低手上籃）的話，手臂舉高時前臂得扭轉 110° 以上，手腕會扭成糖果紙
+    oneK = [(L["ONE_HAND"], V((-0.14, -0.35, 1.36))), (15, V((-0.13, -0.40, 1.80))), (L["RELEASE"], V((-0.12, -0.44, 2.00)))]
+    lay_grip = (V((0, 0.45, 0.89)).normalized(), V((0, -0.89, 0.45)).normalized())   # 出手時（手指方向, 掌心朝向）
     wRK = [(L["LAND"], V((-0.21, -0.36, 1.15))), (L["END"], V((-0.215, -0.03, 0.85)))]   # 沿身體前方劃弧放下，結束同 Idle
     wLK = [(L["END"], V((0.215, -0.03, 0.85)))]
 
@@ -1038,7 +1043,16 @@ def make_layup(P):
     end_R, palm_off = P.wrist_local("hand.R"), -P.pb["hand.L"].matrix.to_3x3().col[2] - natural_palm(P)   # 結束時剛好等於 Idle
     state = {}
     wL0 = V((0.26, -0.20, 0.95)) + Z
-    rel = None
+    pL0 = smooth_pts(L["ONE_HAND"], poleLK)
+
+    def left_drop(f, wR):                                 # 左手離開球後以肩膀為圓心放下（見 drop_left）
+        n = len(P.unreachable)                            # 先擺好身體（肩膀位置）；這次預擺的左手只是暫放，搆不到不記錄
+        pose_body(f, wR, P.pb["hand.L"].head.copy())
+        del P.unreachable[n:]
+        wL, pL = drop_left(P, f, L["ONE_HAND"], L["END"], state["dL"], end_dL, pL0, end_pL)
+        u = min(1.0, (f - L["ONE_HAND"]) / 8)             # 剛離開時先往外讓開，免得穿過往上走的球
+        pose_body(f, wR, wL + V((0.12 * math.sin(math.pi * u), 0, 0)), pL)
+
     for f in range(L["END"] + 1):
         J = V((0, 0, jump(f)))
         if f <= 2:                                        # 右手最後一次壓著球，左手過來準備接
@@ -1048,28 +1062,36 @@ def make_layup(P):
             P.palm_inward(".L")                          # 同 Sprint 第 0 格，再慢慢轉成持球的方向
             P.palm("hand.L", grip_tt[3], -sL, ease(f / 3))
             B = P.seat(V((-0.28, -0.46, 0.8)) + Z, V((0, 0, -1)))
-            ballK[0] = (3, (B - Z).lerp(V((-0.18, -0.30, 0.98)), 0.6))   # 收球：球往身體中線拉，左手才搆得到
+            ballK[0] = (3, (B - Z).lerp(V((-0.18, -0.32, 0.98)), 0.6))   # 收球：球往身體中線拉，左手才搆得到
             P.key(f + 1, B)
             continue
-        if f <= L["RELEASE"]:
+        if f <= L["ONE_HAND"]:                           # 雙手持球（右手托在球下、左手扶球左側）
             B = smooth_pts(f, ballK) + Z + J
             w = ease(min(1.0, (f - 3) / 8))
             g = [a.lerp(b, w) for a, b in zip(grip_tt, grip_lay)]
             P.hold_two(B, g[0], g[1], g[2], g[3], lambda wR, wL: pose_body(f, wR, wL))
-            rel = (B, hand_axes("hand.R"), P.wrist_local("hand.L"),
-                   P.pb["hand.R"].head.copy(), P.pb["hand.L"].head - P.pb["upper_arm.L"].head)
+            state.update(grip0=hand_axes("hand.R"), qL=P.wrist_local("hand.L"),
+                         dL=P.pb["hand.L"].head - P.pb["upper_arm.L"].head)
             P.key(f + 1, B)
             continue
-        B_r, rel_R, rel_L, rel_wR, rel_dL = rel          # 出手後
-        gf = f - L["RELEASE"]
-        wR = spline_pts(f, [(L["RELEASE"], rel_wR)] + [(k, v + Z) for k, v in wRK])
-        n = len(P.unreachable)                            # 先擺好身體（肩膀位置），左手再以肩膀為圓心放下；
-        pose_body(f, wR, P.pb["hand.L"].head.copy())      # 這次預擺的左手只是暫放，搆不到不記錄
-        del P.unreachable[n:]
-        wL, pL = drop_left(P, f, L["RELEASE"], L["END"], rel_dL, end_dL, poleLK[-1][1], end_pL)
-        pose_body(f, wR, wL, pL)
-        follow_through(P, gf, L["END"] - L["RELEASE"], 4, rel_R, end_axes, end_R, rel_L, palm_off, state, snap_deg=80)
-        P.key(f + 1, B_r + V((0, -1.5, 4.0)) * (gf / FPS), 0.0)   # 球往籃框方向飛走（隱藏）
+        if f <= L["RELEASE"]:                            # 只剩右手：掌心朝上托著球往前上方送
+            k = ease((f - L["ONE_HAND"]) / (L["RELEASE"] - L["ONE_HAND"]))
+            g0 = state["grip0"]
+            gd, gt = g0[0].lerp(lay_grip[0], k).normalized(), g0[1].lerp(lay_grip[1], k).normalized()
+            Bt = spline_pts(f, oneK) + Z + J
+            left_drop(f, wrist_for_ball(P, Bt, (gd, gt)))
+            P.palm("hand.R", gd, gt)
+            relax_left(P, f - L["ONE_HAND"], state["qL"], palm_off)
+            B = held_ball(P, ".R")
+            state.update(B=B, rel_R=hand_axes("hand.R"), wR=P.pb["hand.R"].head.copy())
+            P.key(f + 1, B)
+            continue
+        gf = f - L["RELEASE"]                             # 出手後：壓腕停留，再沿身體前方放下
+        left_drop(f, spline_pts(f, [(L["RELEASE"], state["wR"])] + [(k, v + Z) for k, v in wRK]))
+        follow_through(P, gf, L["END"] - L["RELEASE"], 4, state["rel_R"], end_axes, end_R, state["qL"], palm_off, state,
+                       snap_deg=80)
+        relax_left(P, f - L["ONE_HAND"], state["qL"], palm_off)   # 左手從離開球那格開始算
+        P.key(f + 1, state["B"] + V((0, -1.5, 4.0)) * (gf / FPS), 0.0)   # 球往籃板方向飛走（隱藏）
     MOVE_SPEEDS["Layup"] = v0
 
 
