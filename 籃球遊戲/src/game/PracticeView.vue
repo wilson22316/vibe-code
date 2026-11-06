@@ -4,20 +4,28 @@ import { createGallery } from '../gallery/scene.js'
 import { loadColors } from '../menu/teamColors.js'
 import { createPracticeControls } from './practice.js'
 
-// 練習模式：夜晚半場，方向鍵移動、按住 A 衝刺、按住空白鍵蓄力放開投籃（見 practice.js）。Esc 暫停。
+// 練習模式：夜晚半場，方向鍵移動、按住 A 衝刺、按住空白鍵蓄力放開跳投（可以邊移動，見 practice.js）。Esc 暫停。
 const emit = defineEmits(['exit'])
 
 const stage = ref(null)
 const status = ref('載入中…')
 const paused = ref(false)
-const charge = ref(null) // 蓄力中：{ power, ideal }（0～1）
+const charge = ref(null) // 蓄力中：{ power, ideal, perfect, good }（0～1）
 const stats = ref({ shots: 0, makes: 0 })
 const toast = ref(null) // { message, made }
+const grade = ref(null) // 放開空白鍵時的判定：perfect、good、miss
 let toastTimer = 0
+let gradeTimer = 0
 let court = null
+const GRADE_LABELS = { perfect: 'PERFECT', good: 'GOOD', miss: 'MISS' }
 const controls = createPracticeControls({
   onCharge(value) {
     charge.value = value
+  },
+  onShot(value) {
+    grade.value = value
+    clearTimeout(gradeTimer)
+    gradeTimer = setTimeout(() => (grade.value = null), 1200)
   },
   onResult({ made, message, shots, makes }) {
     stats.value = { shots, makes }
@@ -27,7 +35,9 @@ const controls = createPracticeControls({
   },
 })
 
-const percent = (x) => `${Math.round(x * 100)}%`
+const percent = (x) => `${(x * 100).toFixed(1)}%`
+// 判定區（以理想力道為中心、左右各 half 寬）在蓄力條上的位置
+const zone = (ideal, half) => ({ left: percent(ideal - half), width: percent(half * 2) })
 
 function setPaused(value) {
   paused.value = value
@@ -61,6 +71,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(toastTimer)
+  clearTimeout(gradeTimer)
   window.removeEventListener('keydown', onKey)
   controls.stop()
   court?.dispose()
@@ -74,16 +85,20 @@ onBeforeUnmount(() => {
   <div class="stats">
     <span>投籃 <b>{{ stats.shots }}</b></span>
     <span>命中 <b>{{ stats.makes }}</b></span>
-    <span>命中率 <b>{{ stats.shots ? percent(stats.makes / stats.shots) : '—' }}</b></span>
+    <span>命中率 <b>{{ stats.shots ? `${Math.round((stats.makes / stats.shots) * 100)}%` : '—' }}</b></span>
   </div>
 
   <p v-if="toast" class="toast" :class="{ made: toast.made }">{{ toast.message }}</p>
 
-  <!-- 蓄力條：綠線是剛好投進籃框中心的力道 -->
+  <!-- 蓄力條：顏色從綠到紅；亮框是 GOOD 區、中間的白色小區間是 PERFECT -->
   <div v-if="charge" class="meter" aria-hidden="true">
-    <div class="fill" :style="{ width: percent(charge.power) }"></div>
-    <div v-if="charge.ideal !== null && charge.ideal >= 0 && charge.ideal <= 1" class="ideal" :style="{ left: percent(charge.ideal) }"></div>
+    <div class="fill" :style="{ clipPath: `inset(0 ${percent(1 - charge.power)} 0 0)` }"></div>
+    <template v-if="charge.ideal !== null">
+      <div class="zone good" :style="zone(charge.ideal, charge.good)"></div>
+      <div class="zone perfect" :style="zone(charge.ideal, charge.perfect)"></div>
+    </template>
   </div>
+  <p v-if="grade" class="grade" :class="grade">{{ GRADE_LABELS[grade] }}</p>
 
   <div class="hint" aria-hidden="true">
     <span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移動</span>
@@ -137,7 +152,7 @@ onBeforeUnmount(() => {
 
 .toast {
   position: fixed;
-  bottom: 110px;
+  bottom: 140px;
   left: 50%;
   margin: 0;
   padding: 10px 22px;
@@ -164,18 +179,48 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
 }
 
-.meter .fill {
-  height: 100%;
-  background: #e0733f;
+.meter {
+  overflow: hidden;
 }
 
-.meter .ideal {
+.meter .fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4cc46a, #f2d64b 50%, #e04a3a);
+}
+
+.meter .zone {
   position: absolute;
-  top: -4px;
-  bottom: -4px;
-  width: 3px;
-  margin-left: -1px;
-  background: #7ee08a;
+  top: 0;
+  bottom: 0;
+}
+
+.meter .good {
+  border: 2px solid #fcf9f2;
+  background: rgba(252, 249, 242, 0.25);
+  box-sizing: border-box;
+}
+
+.meter .perfect {
+  background: #fcf9f2;
+}
+
+.grade {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  margin: 0;
+  color: #fcf9f2;
+  font: italic bold 26px sans-serif;
+  text-shadow: 2px 2px 0 #2b201b;
+  transform: translateX(-50%);
+}
+
+.grade.perfect {
+  color: #ffd98a;
+}
+
+.grade.miss {
+  color: #c9c3d9;
 }
 
 kbd {

@@ -9,13 +9,29 @@ import { MOVE_SPEEDS, NIGHT_BASKET_Z } from '../gallery/scene.js'
 // ===== 可以調整的參數 =====
 // 衝刺速度倍數：1 是動作原本的 2.843 m/s。推動速度和動作播放速度一起乘上這個倍數，腳才不會打滑
 // （倍數太大時跑步動作會變得很急促）。
-export const SPRINT_SPEED_SCALE = 1.3
-// 投籃：仰角、出手速度範圍（CLAUDE.md：4～13 m/s）、蓄力條從 0 到滿的秒數、力道的隨機誤差
-const SHOT_ANGLE = THREE.MathUtils.degToRad(52)
+export const SPRINT_SPEED_SCALE = 1.5
+// 運球走路的速度倍數：1 是動作原本的 0.979 m/s，和衝刺一樣連動作播放速度一起乘
+export const WALK_SPEED_SCALE = 1.4
+// 投籃：仰角（離籃框 2 m 內用 NEAR、6 m 外用 FAR，中間線性變化；近距離弧度太平的話球進框的角度太斜，
+// 會一直彈框）、出手速度範圍（CLAUDE.md：4～13 m/s）、蓄力條從 0 到滿的秒數
+const SHOT_ANGLE_NEAR = 62
+const SHOT_ANGLE_FAR = 52
 const SHOT_SPEED_MIN = 4
 const SHOT_SPEED_MAX = 13
 const CHARGE_SECONDS = 1.8
-const POWER_JITTER = 0.005
+// 蓄力條的判定區：以理想力道為中心，往左右各多寬（蓄力條全長是 1）
+const PERFECT_ZONE = 0.025
+const GOOD_ZONE = 0.09
+// 出手的隨機誤差（標準差）：speed 是出手速度的比例、side 是左右偏差（度）。
+// 越小越容易進；miss 是放在判定區外，速度還會照力道條的位置偏多或偏少
+const SHOT_ERROR = {
+  perfect: { speed: 0.004, side: 0.3 },
+  good: { speed: 0.012, side: 1.0 },
+  miss: { speed: 0.012, side: 1.0 },
+}
+// 移動中投籃：起跳後保留多少比例的移動速度往前飄、最多幾 m/s
+const JUMP_DRIFT = 0.5
+const JUMP_DRIFT_MAX = 1.8
 // =========================
 
 const BASELINE_Z = NIGHT_BASKET_Z - COURT.BASKET_TO_BASELINE
@@ -30,7 +46,12 @@ const CLIPS = { stand: 'Dribble', walk: 'DribbleWalk', sprint: 'Sprint', shoot: 
 const FADE = 0.25
 const SHOOT_FADE = 0.15
 const SHOOT_RELEASE = 18 / 24 // CLAUDE.md：Shoot 第 18 格出手
+const SHOOT_TAKEOFF = 12 / 24 // 第 12 格起跳、第 24 格落地
+const SHOOT_LAND = 24 / 24
 const SHOOT_LENGTH = 36 / 24
+const MOVING_SHOT_START = 9 / 24 // 移動中投籃從第 9 格（屈膝）開始播，跳過收球站穩
+const MOVING_SPEED = 0.4 // 放開空白鍵時速度超過這個值就算移動中投籃
+const STOP_EASE = 0.08 // 起跳前、落地後減速的時間常數（秒）
 const BALL_BACK_DELAY = 1.0 // 判定完多久把球交回角色手上（還沒有撿球動作）
 const TURN_SPEED = 10 // 每秒轉幾弧度
 const SPEED_EASE = 0.15 // 速度跟上動作的時間常數（秒），和淡入淡出差不多
@@ -44,9 +65,29 @@ const KEYS = new Set([...Object.keys(ARROWS), 'KeyA', 'Space'])
 
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a))
 const speedToPower = (v) => (v - SHOT_SPEED_MIN) / (SHOT_SPEED_MAX - SHOT_SPEED_MIN)
+const powerToSpeed = (p) => SHOT_SPEED_MIN + p * (SHOT_SPEED_MAX - SHOT_SPEED_MIN)
+// 平均 0、標準差 1 的常態分布亂數
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random())
 
-// onCharge({ power, ideal }) 蓄力中每格呼叫，放開時傳 null；onResult({ made, message, shots, makes }) 每球判定後呼叫
-export function createPracticeControls({ onCharge = () => {}, onResult = () => {} } = {}) {
+// 力道條位置 power 相對理想力道 ideal 的判定：perfect、good、miss
+export function gradeShot(power, ideal) {
+  if (ideal === null) return 'miss'
+  const d = Math.abs(power - ideal)
+  return d <= PERFECT_ZONE ? 'perfect' : d <= GOOD_ZONE ? 'good' : 'miss'
+}
+
+// 出手速度是「理想速度 × 這個比例」：判定區內只有隨機誤差；判定區外再照力道條的位置偏多或偏少
+export function shotSpeedRatio(grade, power, ideal) {
+  const base = grade === 'miss' && ideal !== null ? powerToSpeed(power) / powerToSpeed(ideal) : 1
+  return base * (1 + gauss() * SHOT_ERROR[grade].speed)
+}
+
+// 左右偏差（弧度）
+export const shotSideError = (grade) => THREE.MathUtils.degToRad(gauss() * SHOT_ERROR[grade].side)
+
+// onCharge({ power, ideal, perfect, good }) 蓄力中每格呼叫，放開時傳 null；onShot(grade) 放開空白鍵時呼叫；
+// onResult({ made, message, shots, makes }) 每球判定後呼叫
+export function createPracticeControls({ onCharge = () => {}, onShot = () => {}, onResult = () => {} } = {}) {
   let stage = null
   let character = null
   const physics = createBallPhysics(NIGHT_BASKET_Z)
@@ -59,13 +100,13 @@ export function createPracticeControls({ onCharge = () => {}, onResult = () => {
   const goal = new THREE.Vector3()
   let lift = 0
 
-  // 投籃狀態：free 自由移動、charge 蓄力中、shoot 投籃動作中（球交回手上前不能動）
+  // 投籃狀態：free 自由移動、charge 蓄力中（可以邊移動）、shoot 投籃動作中（球交回手上前不能操控）
   let mode = 'free'
   let chargeTime = 0
   let power = 0
   let shotTime = 0
   let releaseLocal = null // Shoot 出手那一格球在角色座標的位置
-  let shot = null // { ball, from, judged, judgedAt }
+  let shot = null // { grade, ratio, side, velocity, ball, from, judged, judgedAt }
   let freeBall = null
   let shots = 0
   let makes = 0
@@ -119,10 +160,13 @@ export function createPracticeControls({ onCharge = () => {}, onResult = () => {
     held.clear()
   }
 
-  function setClip(name, fade = FADE) {
+  // 推動速度和動作播放速度的倍數
+  const speedScale = (name) => (name === CLIPS.sprint ? SPRINT_SPEED_SCALE : name === CLIPS.walk ? WALK_SPEED_SCALE : 1)
+
+  function setClip(name, fade = FADE, startAt = 0) {
     if (clip === name) return
     clip = name
-    stage.play(name, fade, name === CLIPS.sprint ? SPRINT_SPEED_SCALE : 1)
+    stage.play(name, fade, speedScale(name), startAt)
   }
 
   // 從角色往 AIM 的水平方向角（0 是往 -Z、往 -X 為正）
@@ -159,29 +203,26 @@ export function createPracticeControls({ onCharge = () => {}, onResult = () => {
     character.rotation.y = wrapAngle(character.rotation.y + turn)
   }
 
+  // 自由移動和蓄力中：方向鍵移動、按住 A 衝刺（投籃動作中由 updateShot 移動）
   function move(delta) {
-    let dir = null
-    if (mode === 'free') {
-      dir = inputDirection()
-      setClip(dir ? (held.has('KeyA') ? CLIPS.sprint : CLIPS.walk) : CLIPS.stand)
-      // 角色面向 +Z 時 rotation.y = 0，所以面向 (x, z) 的角度是 atan2(x, z)
-      if (dir) turnTowards(Math.atan2(dir.x, dir.z), delta)
-    } else if (mode === 'charge') {
-      turnTowards(facingRim(), delta)
-    }
+    const dir = inputDirection()
+    setClip(dir ? (held.has('KeyA') ? CLIPS.sprint : CLIPS.walk) : CLIPS.stand)
+    // 角色面向 +Z 時 rotation.y = 0，所以面向 (x, z) 的角度是 atan2(x, z)
+    if (dir) turnTowards(Math.atan2(dir.x, dir.z), delta)
 
     let target = MOVE_SPEEDS[clip] ?? 0
-    if (typeof target !== 'number' || mode !== 'free') target = 0
-    if (clip === CLIPS.sprint) target *= SPRINT_SPEED_SCALE
+    if (typeof target !== 'number') target = 0
+    target *= speedScale(clip)
     speed += (target - speed) * Math.min(1, delta / SPEED_EASE)
-    if (mode === 'shoot') speed = 0
     const a = character.rotation.y
+    moveBy(Math.sin(a) * speed * delta, Math.cos(a) * speed * delta)
+  }
+
+  // 移動角色，並留在半場內
+  function moveBy(dx, dz) {
     const p = character.position
-    p.x += Math.sin(a) * speed * delta
-    p.z += Math.cos(a) * speed * delta
-    // 留在半場內
-    p.x = THREE.MathUtils.clamp(p.x, -COURT.HALF_WIDTH + MARGIN, COURT.HALF_WIDTH - MARGIN)
-    p.z = THREE.MathUtils.clamp(p.z, BASELINE_Z + MARGIN, BASELINE_Z + COURT.HALF_LENGTH - MARGIN)
+    p.x = THREE.MathUtils.clamp(p.x + dx, -COURT.HALF_WIDTH + MARGIN, COURT.HALF_WIDTH - MARGIN)
+    p.z = THREE.MathUtils.clamp(p.z + dz, BASELINE_Z + MARGIN, BASELINE_Z + COURT.HALF_LENGTH - MARGIN)
   }
 
   // 角色面向籃框時，出手那一格球的世界座標
@@ -190,39 +231,74 @@ export function createPracticeControls({ onCharge = () => {}, onResult = () => {
     return local.add(character.position)
   }
 
+  // 從 from 出手的仰角（弧度）
+  function shotAngle(from) {
+    const d = Math.hypot(physics.rim.x - from.x, physics.rim.z - from.z)
+    const k = THREE.MathUtils.clamp((d - 2) / 4, 0, 1)
+    return THREE.MathUtils.degToRad(THREE.MathUtils.lerp(SHOT_ANGLE_NEAR, SHOT_ANGLE_FAR, k))
+  }
+
   function idealPower() {
-    const v = physics.idealSpeed(releasePoint(), SHOT_ANGLE)
+    const from = releasePoint()
+    const v = physics.idealSpeed(from, shotAngle(from))
     return v === null ? null : speedToPower(v)
   }
 
-  // 蓄力：力道在 0～1 之間來回擺動，放開空白鍵時的力道就是出手力道
+  // 蓄力：力道在 0～1 之間來回擺動，放開空白鍵時力道條的位置決定 perfect／good／miss。蓄力中可以繼續移動
   function startCharge() {
     mode = 'charge'
     chargeTime = 0
     power = 0
-    setClip(CLIPS.stand)
   }
 
   function updateCharge(delta) {
     chargeTime += delta
     const c = (chargeTime / CHARGE_SECONDS) % 2
     power = c <= 1 ? c : 2 - c
-    onCharge({ power, ideal: idealPower() })
+    onCharge({ power, ideal: idealPower(), perfect: PERFECT_ZONE, good: GOOD_ZONE })
   }
 
+  // 放開空白鍵：轉向籃框跳投。移動中的話跳過收球站穩、起跳後帶著一部分速度往前飄
   function shoot() {
+    const ideal = idealPower()
+    const grade = gradeShot(power, ideal)
+    const heading = character.rotation.y
+    const moving = speed > MOVING_SPEED
+    const drift = Math.min(speed * JUMP_DRIFT, JUMP_DRIFT_MAX)
     mode = 'shoot'
-    shotTime = 0
+    shotTime = moving ? MOVING_SHOT_START : 0
     onCharge(null)
+    onShot(grade)
     character.rotation.y = facingRim()
-    const finalPower = THREE.MathUtils.clamp(power * (1 + (Math.random() * 2 - 1) * POWER_JITTER), 0, 1)
-    shot = { power: finalPower, ball: null, from: null, judged: false, judgedAt: 0 }
-    setClip(CLIPS.shoot, SHOOT_FADE)
+    shot = {
+      grade,
+      ratio: shotSpeedRatio(grade, power, ideal),
+      side: shotSideError(grade),
+      velocity: new THREE.Vector3(Math.sin(heading) * speed, 0, Math.cos(heading) * speed),
+      drift: new THREE.Vector3(Math.sin(heading) * drift, 0, Math.cos(heading) * drift),
+      ball: null,
+      from: null,
+      judged: false,
+      judgedAt: 0,
+    }
+    speed = 0
+    setClip(CLIPS.shoot, SHOOT_FADE, shotTime)
+  }
+
+  // 投籃動作中的移動：起跳前減速到飄移速度、空中維持、落地後停下
+  function shotMove(delta) {
+    const v = shot.velocity
+    if (shotTime < SHOOT_TAKEOFF) v.lerp(shot.drift, Math.min(1, delta / STOP_EASE))
+    else if (shotTime >= SHOOT_LAND) v.multiplyScalar(1 - Math.min(1, delta / STOP_EASE))
+    moveBy(v.x * delta, v.z * delta)
   }
 
   function release() {
     const from = releasePoint()
-    const v = physics.launchVelocity(from, SHOT_ANGLE, SHOT_SPEED_MIN + shot.power * (SHOT_SPEED_MAX - SHOT_SPEED_MIN))
+    const angle = shotAngle(from)
+    const ideal = physics.idealSpeed(from, angle)
+    const v = physics.launchVelocity(from, angle, (ideal ?? SHOT_SPEED_MAX) * shot.ratio)
+    v.applyAxisAngle(THREE.Object3D.DEFAULT_UP, shot.side)
     shot.from = from
     shot.ball = physics.launch(from, v)
     shot.spinAxis = new THREE.Vector3(v.x, 0, v.z).normalize().cross(THREE.Object3D.DEFAULT_UP)
@@ -244,6 +320,7 @@ export function createPracticeControls({ onCharge = () => {}, onResult = () => {
 
   function updateShot(delta) {
     shotTime += delta
+    shotMove(delta)
     if (!shot.ball && shotTime >= SHOOT_RELEASE) release()
     const b = shot.ball
     if (b) {
@@ -279,7 +356,7 @@ export function createPracticeControls({ onCharge = () => {}, onResult = () => {
   function update(delta, paused) {
     if (!stage || paused) return
     delta = Math.min(delta, 0.1) // 分頁切回來時的第一格可能隔了很久
-    move(delta)
+    if (mode !== 'shoot') move(delta)
     if (mode === 'charge') updateCharge(delta)
     if (mode === 'shoot') updateShot(delta)
     const k = Math.min(1, delta / CAMERA.ease)

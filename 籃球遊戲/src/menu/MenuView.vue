@@ -222,7 +222,7 @@ onBeforeUnmount(() => {
           <td>{{ action }}</td>
         </tr>
       </table>
-      <p class="note">目前練習模式只能移動和衝刺，投籃、傳球之後加上。</p>
+      <p class="note">目前練習模式可以移動、衝刺和跳投，傳球之後加上。</p>
       <button type="button" class="back" @click="back">返回</button>
     </section>
   </main>

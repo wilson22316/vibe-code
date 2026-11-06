@@ -401,6 +401,18 @@ def make_idle(P):
         P.key(f + 1, V((-0.34, -0.22, P.floor)) + Z)
 
 
+SHOOT_JUMP = 0.32          # Shoot 跳起的高度（縮放前；第 12 格起跳、第 24 格落地，滯空 0.5 秒）
+SHOOT_TAKEOFF, SHOOT_LAND = 12, 24
+
+
+def shoot_jump(f):
+    """Shoot 第 f 格的離地高度：以出手那一格為最高點的拋物線。"""
+    if not SHOOT_TAKEOFF <= f <= SHOOT_LAND:
+        return 0.0
+    half = (SHOOT_LAND - SHOOT_TAKEOFF) / 2
+    return SHOOT_JUMP * (1 - ((f - SHOOT_RELEASE_FRAME) / half) ** 2)
+
+
 def make_shoot(P):
     """跳投：收球 → 屈膝 → 起跳舉球（手肘在球正下方、朝前）→ 最高點出手 → 壓腕 → 落地時手臂仍伸在前上方 → 收回。"""
     P.new_action("Shoot")
@@ -479,9 +491,13 @@ def make_shoot(P):
     end_R, palm_off = P.wrist_local("hand.R"), -P.pb["hand.L"].matrix.to_3x3().col[2] - natural_palm(P)   # 結束時剛好等於 Idle
     for f in range(SHOOT_END + 1):
         hd, ln, ht, bl, wR, wL, hR, lift, pR, pL = interp(f)
+        # 跳躍改成拋物線（第 12 格起跳、第 18 格出手時在最高點、第 24 格落地）：
+        # 表格裡的離地高度只到 0.14 m，看不太出來在跳，差多少就把整個姿勢（臀部、球、雙手、雙腳）一起往上移
+        dz = V((0, 0, shoot_jump(f) - lift))
+        hd, bl, wR, wL, lift = hd + dz, bl + dz, wR + dz, wL + dz, shoot_jump(f)
         aR, aL = stance(f)
         aR, aL = aR + V((0, 0, lift)), aL + V((0, 0, lift))
-        toe = 0.55 * (lift / 0.14)                       # 離地時腳尖朝下
+        toe = 0.55 * min(1.0, lift / 0.08)               # 離地時腳尖朝下
         B, wristR, wristL = bl + Z, wR + Z, wL + Z
         # 右手托球：掌心朝球、手指沿著球面，手腕從球的位置推回去。第 0 格和 Dribble 一樣（手壓在球上）。
         kR = ramp(f, 0, 4, SHOOT_RELEASE_FRAME, SHOOT_RELEASE_FRAME + 3)
