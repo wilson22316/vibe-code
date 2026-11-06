@@ -17,7 +17,7 @@ const grade = ref(null) // 放開空白鍵時的判定：perfect、good、miss
 let toastTimer = 0
 let gradeTimer = 0
 let court = null
-const GRADE_LABELS = { perfect: 'PERFECT', good: 'GOOD', miss: 'MISS' }
+const GRADE_LABELS = { perfect: 'PERFECT', good: 'GOOD', miss: 'MISS', layup: 'LAYUP', dunk: 'DUNK!' }
 const controls = createPracticeControls({
   onCharge(value) {
     charge.value = value
@@ -103,7 +103,7 @@ onBeforeUnmount(() => {
   <div class="hint" aria-hidden="true">
     <span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移動</span>
     <span><kbd>A</kbd> 衝刺（按住）</span>
-    <span><kbd>空白鍵</kbd> 按住蓄力、放開投籃</span>
+    <span><kbd>空白鍵</kbd> 按住蓄力、放開投籃（衝向籃框時上籃，加 <kbd>A</kbd> 灌籃）</span>
     <span><kbd>Esc</kbd> 暫停</span>
   </div>
 

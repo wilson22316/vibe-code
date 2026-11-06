@@ -124,6 +124,38 @@ export function createBallPhysics(basketZ) {
     return dir.multiplyScalar(Math.cos(angle) * speed).setY(Math.sin(angle) * speed)
   }
 
+  // 上籃打板：找一個先打到籃板、再落進籃框的出手速度，找不到就回傳 null。
+  // 打板點的左右位置照反彈算（籃板反彈時 z 方向速度乘 BOARD_BOUNCE、x 方向乘 0.9），
+  // 高度和飛行時間逐一試算，挑球心最靠近籃框中心、沒碰到籃框的那一組。
+  function bankShotVelocity(from) {
+    const front = boardZ + BALL_RADIUS // 球碰到籃板時球心的 z
+    const a = from.z - front
+    const b = rim.z - front
+    if (a < 0.2) return null
+    const k = (0.9 / BOARD_BOUNCE) * (b / a)
+    const tx = (rim.x + k * from.x) / (1 + k)
+    const target = new THREE.Vector3()
+    const v = new THREE.Vector3()
+    let best = null
+    let bestScore = Infinity
+    for (let ty = rim.y + 0.1; ty <= rim.y + 0.7; ty += 0.05) {
+      for (let t = 0.25; t <= 0.9; t += 0.05) {
+        target.set(tx, ty, front)
+        v.subVectors(target, from).divideScalar(t)
+        v.y += (GRAVITY * t) / 2
+        const ball = launch(from, v)
+        while (!(ball.crossed && ball.p.y < rim.y - 0.3) && ball.age < 2) update(ball, 1 / 60)
+        if (!ball.scored) continue
+        const score = Math.hypot(ball.crossed.x - rim.x, ball.crossed.z - rim.z) + (ball.touchedRim ? 1 : 0) + (ball.touchedBoard ? 0 : 0.5)
+        if (score < bestScore) {
+          bestScore = score
+          best = v.clone()
+        }
+      }
+    }
+    return best
+  }
+
   // 沒進時的原因（從出手方向看太短或太長）
   function missReason(b, from) {
     const dir = new THREE.Vector3(rim.x - from.x, 0, rim.z - from.z).normalize()
@@ -135,5 +167,5 @@ export function createBallPhysics(basketZ) {
     return '太短了，沒碰到籃框'
   }
 
-  return { rim, launch, update, idealSpeed, launchVelocity, missReason }
+  return { rim, launch, update, idealSpeed, launchVelocity, bankShotVelocity, missReason }
 }
