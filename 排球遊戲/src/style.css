@@ -41,13 +41,13 @@ body {
   font-size: 16px;
 }
 
-/* 我方顏色跟著角色自訂的球衣（customize.js 設定 --home-color） */
+/* 我方顏色跟著角色自訂的球衣（customize.js 設定 --home-color）；連線對戰的客人兩邊對調（main.js 設定） */
 #scoreboard .home {
   background: var(--home-color, #ff6b4a);
 }
 
 #scoreboard .away {
-  background: #5b6cff;
+  background: var(--away-color, #5b6cff);
 }
 
 #scoreboard b {
@@ -951,7 +951,7 @@ body {
 }
 
 .intro-away {
-  background: #5b6cff;
+  background: var(--away-color, #5b6cff);
 }
 
 .intro-vs b {
@@ -1146,4 +1146,20 @@ body {
   to {
     transform: translateX(-50%) scale(1);
   }
+}
+
+/* 內網連線：等待對手時顯示要分享的網址 */
+.lan-info {
+  max-width: 420px;
+  margin: 4px 0 10px;
+  font-size: 15px;
+  line-height: 1.7;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.lan-info b {
+  display: block;
+  color: #ffd23f;
+  font-size: 22px;
+  user-select: text;
 }

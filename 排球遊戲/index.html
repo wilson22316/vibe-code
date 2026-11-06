@@ -44,7 +44,19 @@
           <button data-goto="tutorial">操作教學</button>
           <button data-goto="custom">角色自訂</button>
           <button data-goto="settings">設定</button>
-          <button data-soon>多人連線<small>即將推出</small></button>
+          <button data-goto="lan">多人連線</button>
+        </div>
+        <!-- 內網連線對戰：伺服器用 npm run lan 啟動，兩台裝置都開伺服器印出的網址 -->
+        <div class="menu-screen" data-screen="lan" data-axis="y" data-back="main" data-keys="↑ ↓ 選擇　·　空白鍵 確定　·　Esc 返回" hidden>
+          <div class="screen-title">內網連線對戰（1 對 1）</div>
+          <button data-action="lanHost">建立房間<span class="desc">在這台開房，等對手用自己的裝置加入</span></button>
+          <button data-action="lanJoin">加入房間<span class="desc">加入已經建立好的房間</span></button>
+          <button class="back" data-back>‹ 返回</button>
+        </div>
+        <div class="menu-screen" data-screen="lan-wait" data-axis="y" data-back="lan" data-keys="空白鍵／Esc 取消" hidden>
+          <div class="screen-title">等待對手加入…</div>
+          <div class="lan-info" id="lan-info"></div>
+          <button data-action="lanCancel">取消</button>
         </div>
         <div class="menu-screen" data-screen="level" data-axis="x" data-back="main" data-default="1" data-keys="← → 選擇難度　·　空白鍵 開始　·　Esc 返回" hidden>
           <div class="screen-title">選擇對手難度</div>
