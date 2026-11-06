@@ -1,4 +1,4 @@
-// 練習模式的操控：方向鍵移動、按住 A 衝刺、按住空白鍵蓄力放開投籃（衝向籃框時上籃、灌籃），投完空手走過去撿球；依移動狀態切換運球動作，鏡頭在角色背後跟拍、朝向籃框。
+// 練習模式的操控：方向鍵移動、按住 A 衝刺、按下空白鍵起跳、按住時力道上升、放開出手（衝向籃框時上籃、灌籃），投完空手走過去撿球；依移動狀態切換運球動作，鏡頭在角色背後跟拍、朝向籃框。
 // 移動方向以鏡頭為準：↑ 是往籃框的方向，← → 繞著籃框橫移，↓ 往鏡頭走。
 // 角色只往自己面向的方向前進（速度照各動作的 MOVE_SPEEDS，腳才不會打滑），轉向時邊走邊轉。
 import * as THREE from 'three'
@@ -13,15 +13,16 @@ export const SPRINT_SPEED_SCALE = 1.5
 // 運球走路的速度倍數：1 是動作原本的 0.979 m/s，和衝刺一樣連動作播放速度一起乘
 export const WALK_SPEED_SCALE = 2
 // 投籃：仰角（離籃框 2 m 內用 NEAR、6 m 外用 FAR，中間線性變化；近距離弧度太平的話球進框的角度太斜，
-// 會一直彈框）、出手速度範圍（CLAUDE.md：4～13 m/s）、蓄力條從 0 到滿的秒數
+// 會一直彈框）、出手速度範圍（CLAUDE.md：4～13 m/s）、按下空白鍵後力道條從 0 加到滿的秒數
 const SHOT_ANGLE_NEAR = 62
 const SHOT_ANGLE_FAR = 52
 const SHOT_SPEED_MIN = 4
 const SHOT_SPEED_MAX = 13
-const CHARGE_SECONDS = 1.8
-// 蓄力條的判定區：以理想力道為中心，往左右各多寬（蓄力條全長是 1）
-const PERFECT_ZONE = 0.025
-const GOOD_ZONE = 0.09
+const CHARGE_SECONDS = 0.8
+// 蓄力條的判定區：以理想力道為中心，往左右各多寬（蓄力條全長是 1）。
+// 能放開的時間是「寬度 × CHARGE_SECONDS」：PERFECT 0.05 約 ±40 毫秒、GOOD 0.15 約 ±120 毫秒
+const PERFECT_ZONE = 0.05
+const GOOD_ZONE = 0.15
 // 出手的隨機誤差（標準差）：speed 是出手速度的比例、side 是左右偏差（度）。
 // 越小越容易進；miss 是放在判定區外，速度還會照力道條的位置偏多或偏少
 const SHOT_ERROR = {
@@ -59,8 +60,14 @@ const SHOOT_RELEASE = 18 / 24 // CLAUDE.md：Shoot 第 18 格出手
 const SHOOT_TAKEOFF = 12 / 24 // 第 12 格起跳、第 24 格落地
 const SHOOT_LAND = 24 / 24
 const SHOOT_LENGTH = 36 / 24
-const MOVING_SHOT_START = 9 / 24 // 移動中投籃從第 9 格（屈膝）開始播，跳過收球站穩
-const MOVING_SPEED = 0.4 // 放開空白鍵時速度超過這個值就算移動中投籃
+// 一按空白鍵就從第 6 格（球收到胸前）開始播，0.25 秒後起跳。按住時力道一直上升；
+// 到第 16 格（快到最高點）還按著的話動作放慢（在空中多停一下），到第 18 格（出手那一格）還沒放開就自動出手，算太晚。
+// 早放開的話動作快轉，CATCH_UP 秒內到第 18 格出手
+const JUMP_START = 6 / 24
+const HANG_FROM = 16 / 24
+const HANG_SCALE = 0.2
+const CATCH_UP = 0.1
+const MOVING_SPEED = 0.4 // 按空白鍵時速度超過這個值就算移動中投籃
 const STOP_EASE = 0.08 // 起跳前、落地後減速的時間常數（秒）
 // 上籃、灌籃（CLAUDE.md 動作規格）：從 Sprint 接起，第 11 格前以 Sprint 速度推動（腳在地上），
 // 空中速度由遊戲決定（讓出手時球剛好到目標點），落地後 4 格降到 0。
@@ -106,7 +113,8 @@ export function shotSpeedRatio(grade, power, ideal) {
 // 左右偏差（弧度）
 export const shotSideError = (grade) => THREE.MathUtils.degToRad(gauss() * SHOT_ERROR[grade].side)
 
-// onCharge({ power, ideal, perfect, good }) 蓄力中每格呼叫，放開時傳 null；onShot(grade) 放開空白鍵時呼叫；
+// onCharge({ power, ideal, perfect, good }) 蓄力中每格呼叫，放開時傳 null；
+// onShot(grade) 出手時呼叫（perfect、good、miss、late 太晚自動出手、layup、dunk）；
 // onResult({ made, message, shots, makes }) 每球判定後呼叫
 export function createPracticeControls({ onCharge = () => {}, onShot = () => {}, onResult = () => {} } = {}) {
   let stage = null
@@ -122,8 +130,8 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   const rollAxis = new THREE.Vector3()
   let lift = 0
 
-  // 投籃狀態：free 自由移動、charge 蓄力中（可以邊移動）、drive 按了空白鍵、還在往籃框跑（到了距離就自動上籃或灌籃）、
-  // shoot 投籃、上籃、灌籃動作中（球交回手上前不能操控）
+  // 投籃狀態：free 自由移動、drive 按了空白鍵、還在往籃框跑（到了距離就自動上籃或灌籃）、
+  // shoot 跳投（按住蓄力中也是）、上籃、灌籃動作中（動作做完前不能操控）
   let mode = 'free'
   let chargeTime = 0
   let power = 0
@@ -145,18 +153,18 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
       if (driving()) {
         mode = 'drive'
         updateDrive()
-      } else startCharge()
+      } else startShot()
     }
   }
   function onKeyUp(event) {
     held.delete(event.code)
-    if (event.code === 'Space' && mode === 'charge') shoot()
+    if (event.code === 'Space' && shot?.holding) letGo(false)
   }
-  // 切到別的視窗時放開所有按鍵，免得角色一直走；蓄力中、切入中就直接取消
+  // 切到別的視窗時放開所有按鍵，免得角色一直走；蓄力中就直接出手、切入中就取消
   function onBlur() {
     held.clear()
-    if (mode === 'charge') onCharge(null)
-    if (mode === 'charge' || mode === 'drive') mode = 'free'
+    if (shot?.holding) letGo(false)
+    if (mode === 'drive') mode = 'free'
   }
 
   function start(gallery) {
@@ -276,37 +284,21 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     return v === null ? null : speedToPower(v)
   }
 
-  // 蓄力：力道在 0～1 之間來回擺動，放開空白鍵時力道條的位置決定 perfect／good／miss。蓄力中可以繼續移動
-  function startCharge() {
-    mode = 'charge'
+  // 按下空白鍵：轉向籃框、馬上起跳，按住時力道從 0 往上加。移動中的話起跳後帶著一部分速度往前飄
+  function startShot() {
+    const heading = character.rotation.y
+    const drift = speed > MOVING_SPEED ? Math.min(speed * JUMP_DRIFT, JUMP_DRIFT_MAX) : 0
+    mode = 'shoot'
+    shotTime = JUMP_START
     chargeTime = 0
     power = 0
-  }
-
-  function updateCharge(delta) {
-    chargeTime += delta
-    const c = (chargeTime / CHARGE_SECONDS) % 2
-    power = c <= 1 ? c : 2 - c
-    onCharge({ power, ideal: idealPower(), perfect: PERFECT_ZONE, good: GOOD_ZONE })
-  }
-
-  // 放開空白鍵：轉向籃框跳投。移動中的話跳過收球站穩、起跳後帶著一部分速度往前飄
-  function shoot() {
-    const ideal = idealPower()
-    const grade = gradeShot(power, ideal)
-    const heading = character.rotation.y
-    const moving = speed > MOVING_SPEED
-    const drift = Math.min(speed * JUMP_DRIFT, JUMP_DRIFT_MAX)
-    mode = 'shoot'
-    shotTime = moving ? MOVING_SHOT_START : 0
-    onCharge(null)
-    onShot(grade)
     character.rotation.y = facingRim()
     shot = {
       kind: 'jump',
-      grade,
-      ratio: shotSpeedRatio(grade, power, ideal),
-      side: shotSideError(grade),
+      holding: true,
+      grade: null,
+      ratio: 1,
+      side: 0,
       velocity: new THREE.Vector3(Math.sin(heading) * speed, 0, Math.cos(heading) * speed),
       drift: new THREE.Vector3(Math.sin(heading) * drift, 0, Math.cos(heading) * drift),
       ball: null,
@@ -316,6 +308,30 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     }
     speed = 0
     setClip(CLIPS.shoot, SHOOT_FADE, shotTime)
+    onCharge({ power, ideal: idealPower(), perfect: PERFECT_ZONE, good: GOOD_ZONE })
+  }
+
+  // 按住中：力道上升；快到最高點時動作放慢（在空中多停一下），到出手那一格還按著就自動出手（太晚）
+  function updateHold(delta) {
+    chargeTime += delta
+    power = Math.min(1, chargeTime / CHARGE_SECONDS)
+    onCharge({ power, ideal: idealPower(), perfect: PERFECT_ZONE, good: GOOD_ZONE })
+    if (shotTime >= SHOOT_RELEASE) letGo(true)
+    else stage.setTimeScale(shotTime >= HANG_FROM ? HANG_SCALE : 1)
+  }
+
+  // 放開空白鍵（late：按太久自動出手）：這時的力道決定 perfect／good／miss；還沒到出手那一格的話動作快轉過去
+  function letGo(late) {
+    const ideal = idealPower()
+    const grade = late ? 'miss' : gradeShot(power, ideal)
+    shot.holding = false
+    shot.grade = grade
+    shot.ratio = shotSpeedRatio(grade, power, ideal)
+    shot.side = shotSideError(grade)
+    onCharge(null)
+    onShot(late ? 'late' : grade)
+    const rest = SHOOT_RELEASE - shotTime
+    stage.setTimeScale(rest > 0 ? Math.max(1, rest / CATCH_UP) : 1)
   }
 
   // 投籃動作中的移動：起跳前減速到飄移速度、空中維持、落地後停下
@@ -360,7 +376,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     return { heading: Math.atan2(dx, dz) - Math.atan2(b.x, forward), air, start }
   }
 
-  // 切入中每格檢查：按住 A 是灌籃、沒按是上籃，跑到距離就出手；停下或轉開了就改成蓄力跳投（空白鍵還按著的話）
+  // 切入中每格檢查：按住 A 是灌籃、沒按是上籃，跑到距離就出手；停下或轉開了就改成跳投（空白鍵還按著的話）
   function updateDrive() {
     let name = held.has('KeyA') ? 'Dunk' : 'Layup'
     let plan = driving() ? drivePlan(name) : 'stop'
@@ -370,7 +386,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     }
     if (plan === 'far') return
     if (plan === 'near' || plan === 'stop') {
-      if (held.has('Space')) startCharge()
+      if (held.has('Space')) startShot()
       else mode = 'free'
       return
     }
@@ -439,16 +455,22 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   }
 
   function updateShot(delta) {
-    shotTime += delta
     const drive = DRIVES[shot.kind]
-    if (drive) driveMove(delta, drive)
-    else shotMove(delta)
-    if (!shot.ball && shotTime >= (drive ? drive.release : SHOOT_RELEASE)) {
-      if (drive) releaseDrive()
-      else release()
+    if (drive) {
+      shotTime += delta
+      driveMove(delta, drive)
+      if (!shot.ball && shotTime >= drive.release) releaseDrive()
+    } else {
+      shotTime = stage.actionTime() // 跳投的動作會放慢或快轉，直接看動作播到哪
+      if (shot.holding) updateHold(delta)
+      shotMove(delta)
+      if (!shot.holding && !shot.ball && shotTime >= SHOOT_RELEASE) {
+        release()
+        stage.setTimeScale(1)
+      }
     }
     // 動作做完就可以動了，空手去撿球
-    if (shotTime >= (drive ? drive.length : SHOOT_LENGTH)) {
+    if (shotTime >= (drive ? drive.length : SHOOT_LENGTH) - 1e-3) {
       mode = 'free'
       hasBall = false
     }
@@ -514,7 +536,6 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     delta = Math.min(delta, 0.1) // 分頁切回來時的第一格可能隔了很久
     if (mode !== 'shoot') move(delta)
     if (mode === 'drive') updateDrive()
-    if (mode === 'charge') updateCharge(delta)
     if (mode === 'shoot') updateShot(delta)
     if (shot?.ball) updateLooseBall(delta)
     if (!hasBall) {

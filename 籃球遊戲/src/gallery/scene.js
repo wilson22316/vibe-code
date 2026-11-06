@@ -407,6 +407,8 @@ export function createGallery(
     sampleBall,
     camera,
     actionTime: () => current?.time ?? 0,
+    // 目前動作的播放速度倍數（遊戲裡跳投按住時放慢、早放開時快轉）
+    setTimeScale: (scale) => current?.setEffectiveTimeScale(scale),
     getCharacter: () => character,
     getBall: () => ball,
     dispose() {

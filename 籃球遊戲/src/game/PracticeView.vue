@@ -4,7 +4,7 @@ import { createGallery } from '../gallery/scene.js'
 import { loadColors } from '../menu/teamColors.js'
 import { createPracticeControls } from './practice.js'
 
-// 練習模式：夜晚半場，方向鍵移動、按住 A 衝刺、按住空白鍵蓄力放開跳投（可以邊移動，見 practice.js）。Esc 暫停。
+// 練習模式：夜晚半場，方向鍵移動、按住 A 衝刺、按下空白鍵起跳、按住加力道、放開出手（見 practice.js）。Esc 暫停。
 const emit = defineEmits(['exit'])
 
 const stage = ref(null)
@@ -17,7 +17,7 @@ const grade = ref(null) // 放開空白鍵時的判定：perfect、good、miss
 let toastTimer = 0
 let gradeTimer = 0
 let court = null
-const GRADE_LABELS = { perfect: 'PERFECT', good: 'GOOD', miss: 'MISS', layup: 'LAYUP', dunk: 'DUNK!' }
+const GRADE_LABELS = { perfect: 'PERFECT', good: 'GOOD', miss: 'MISS', late: 'LATE', layup: 'LAYUP', dunk: 'DUNK!' }
 const controls = createPracticeControls({
   onCharge(value) {
     charge.value = value
@@ -103,7 +103,7 @@ onBeforeUnmount(() => {
   <div class="hint" aria-hidden="true">
     <span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移動</span>
     <span><kbd>A</kbd> 衝刺（按住）</span>
-    <span><kbd>空白鍵</kbd> 按住蓄力、放開投籃（衝向籃框時上籃，加 <kbd>A</kbd> 灌籃）</span>
+    <span><kbd>空白鍵</kbd> 按下起跳、按住加力道、放開出手（衝向籃框時上籃，加 <kbd>A</kbd> 灌籃）</span>
     <span><kbd>Esc</kbd> 暫停</span>
   </div>
 
@@ -219,7 +219,8 @@ onBeforeUnmount(() => {
   color: #ffd98a;
 }
 
-.grade.miss {
+.grade.miss,
+.grade.late {
   color: #c9c3d9;
 }
 

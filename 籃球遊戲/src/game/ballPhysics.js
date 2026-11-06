@@ -166,6 +166,8 @@ export function createBallPhysics(basketZ) {
   // 沒進時的原因（從出手方向看太短或太長）
   function missReason(b, from) {
     const dir = new THREE.Vector3(rim.x - from.x, 0, rim.z - from.z).normalize()
+    // 力道太大打到籃板彈回來的球，會在籃框前面落下，不能算太短
+    if (b.crossed && b.touchedBoard) return b.touchedRim ? '打板、打框沒進' : '打板沒進'
     if (b.crossed) {
       const along = (b.crossed.x - rim.x) * dir.x + (b.crossed.z - rim.z) * dir.z
       return (b.touchedRim ? '打框沒進：' : '') + (along < 0 ? '太短了' : '太長了')
