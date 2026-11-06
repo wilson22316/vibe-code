@@ -10,6 +10,8 @@ const STEP = 1 / 240
 const RIM_BOUNCE = 0.55
 const BOARD_BOUNCE = 0.6
 const FLOOR_BOUNCE = 0.72
+const SETTLE_SPEED = 0.5 // 落地時往下的速度小於這個值就不再彈，改成在地上滾
+const ROLL_DRAG = 0.8 // 在地上滾的減速（每秒速度乘 e^-ROLL_DRAG）
 const NET_DEPTH = 0.4
 const SCORE_MARGIN = 0.035 // 球心往下穿過籃框高度時，水平距離小於「籃框半徑 − 這個值」才算進
 
@@ -84,15 +86,20 @@ export function createBallPhysics(basketZ) {
         b.touchedRim = true
       }
     }
-    // 地板
+    // 地板：落地反彈時水平速度減一些；彈不起來之後就在地上滾，慢慢停下
     if (b.p.y < BALL_RADIUS) {
       b.p.y = BALL_RADIUS
-      if (b.v.y < 0) {
+      if (b.v.y < -SETTLE_SPEED) {
         b.v.y *= -FLOOR_BOUNCE
+        b.v.x *= 0.9
+        b.v.z *= 0.9
         b.bounces++
+      } else {
+        b.v.y = 0
+        const k = Math.exp(-ROLL_DRAG * dt)
+        b.v.x *= k
+        b.v.z *= k
       }
-      b.v.x *= 0.9
-      b.v.z *= 0.9
     }
     // 進球判定：球心往下穿過籃框高度
     if (!b.crossed && prevY >= rim.y && b.p.y < rim.y) {

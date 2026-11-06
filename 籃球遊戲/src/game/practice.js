@@ -1,9 +1,9 @@
-// 練習模式的操控：方向鍵移動、按住 A 衝刺、按住空白鍵蓄力放開投籃；依移動狀態切換運球動作，鏡頭在角色背後跟拍、朝向籃框。
+// 練習模式的操控：方向鍵移動、按住 A 衝刺、按住空白鍵蓄力放開投籃（衝向籃框時上籃、灌籃），投完空手走過去撿球；依移動狀態切換運球動作，鏡頭在角色背後跟拍、朝向籃框。
 // 移動方向以鏡頭為準：↑ 是往籃框的方向，← → 繞著籃框橫移，↓ 往鏡頭走。
 // 角色只往自己面向的方向前進（速度照各動作的 MOVE_SPEEDS，腳才不會打滑），轉向時邊走邊轉。
 import * as THREE from 'three'
 import { COURT } from './court.js'
-import { createBallPhysics } from './ballPhysics.js'
+import { BALL_RADIUS, createBallPhysics } from './ballPhysics.js'
 import { MOVE_SPEEDS, NIGHT_BASKET_Z } from '../gallery/scene.js'
 
 // ===== 可以調整的參數 =====
@@ -47,8 +47,12 @@ const START = new THREE.Vector3(0, 0, NIGHT_BASKET_Z + 6.5) // 三分線弧頂�
 // 朝後方的點，籃下最多只偏四十幾度，在場上各處都看得到籃框。
 const AIM = new THREE.Vector3(0, 0, NIGHT_BASKET_Z - 6)
 
-// 動作：站著原地運球、走路運球、衝刺運球、投籃（上籃、灌籃見 DRIVES）
+// 動作：站著原地運球、走路運球、衝刺運球、投籃（上籃、灌籃見 DRIVES）；沒有球時站著、慢跑、衝刺
 const CLIPS = { stand: 'Dribble', walk: 'DribbleWalk', sprint: 'Sprint', shoot: 'Shoot' }
+const NO_BALL = { stand: 'Idle', walk: 'Jog', sprint: 'Run' }
+const PICKUP_RADIUS = 0.7 // 球心離角色多近（水平）就撿起來
+const PICKUP_HEIGHT = 1.3 // 球心低於這個高度才撿得到
+const PICKUP_FADE = 0.15
 const FADE = 0.25
 const SHOOT_FADE = 0.15
 const SHOOT_RELEASE = 18 / 24 // CLAUDE.md：Shoot 第 18 格出手
@@ -70,7 +74,6 @@ const DRIVE_BRAKE = 4 / 24
 const DRIVE_FADE = 0.12
 const AIR_SPEED_MIN = 0.3 // 空中推動速度的範圍（m/s）：離籃框太近或太遠就調不到
 const AIR_SPEED_MAX = 3.5
-const BALL_BACK_DELAY = 1.0 // 判定完多久把球交回角色手上（還沒有撿球動作）
 const TURN_SPEED = 10 // 每秒轉幾弧度
 const SPEED_EASE = 0.15 // 速度跟上動作的時間常數（秒），和淡入淡出差不多
 
@@ -116,6 +119,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   const cameraPos = new THREE.Vector3()
   const look = new THREE.Vector3()
   const goal = new THREE.Vector3()
+  const rollAxis = new THREE.Vector3()
   let lift = 0
 
   // 投籃狀態：free 自由移動、charge 蓄力中（可以邊移動）、drive 按了空白鍵、還在往籃框跑（到了距離就自動上籃或灌籃）、
@@ -126,7 +130,8 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   let shotTime = 0
   let releaseLocal = null // Shoot 出手那一格球在角色座標的位置
   const driveLocal = {} // 上籃、灌籃出手那一格球在角色座標的位置
-  let shot = null // { kind: 'jump' | 'Layup' | 'Dunk', ball, from, judged, judgedAt, ... }
+  let shot = null // { kind: 'jump' | 'Layup' | 'Dunk', ball, from, judged, judgedAt, ... }；球撿回來之前都留著
+  let hasBall = true // 動作做完後球還在場上滾的話是 false，要走過去撿
   let freeBall = null
   let shots = 0
   let makes = 0
@@ -136,7 +141,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     event.preventDefault()
     if (event.repeat) return
     held.add(event.code)
-    if (event.code === 'Space' && mode === 'free') {
+    if (event.code === 'Space' && mode === 'free' && hasBall) {
       if (driving()) {
         mode = 'drive'
         updateDrive()
@@ -185,7 +190,9 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   }
 
   // 推動速度和動作播放速度的倍數
-  const speedScale = (name) => (name === CLIPS.sprint ? SPRINT_SPEED_SCALE : name === CLIPS.walk ? WALK_SPEED_SCALE : 1)
+  // （沒有球的衝刺 Run 也乘衝刺倍數；慢跑 Jog 本來就和調快後的運球走路差不多快，不乘）
+  const speedScale = (name) =>
+    name === CLIPS.sprint || name === NO_BALL.sprint ? SPRINT_SPEED_SCALE : name === CLIPS.walk ? WALK_SPEED_SCALE : 1
 
   function setClip(name, fade = FADE, startAt = 0) {
     if (clip === name) return
@@ -230,7 +237,8 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   // 自由移動和蓄力中：方向鍵移動、按住 A 衝刺（投籃動作中由 updateShot 移動）
   function move(delta) {
     const dir = inputDirection()
-    setClip(dir ? (held.has('KeyA') ? CLIPS.sprint : CLIPS.walk) : CLIPS.stand)
+    const set = hasBall ? CLIPS : NO_BALL
+    setClip(dir ? (held.has('KeyA') ? set.sprint : set.walk) : set.stand)
     // 角色面向 +Z 時 rotation.y = 0，所以面向 (x, z) 的角度是 atan2(x, z)
     if (dir) turnTowards(Math.atan2(dir.x, dir.z), delta)
 
@@ -439,22 +447,53 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
       if (drive) releaseDrive()
       else release()
     }
-    const b = shot.ball
-    if (b) {
-      physics.update(b, delta)
-      freeBall.position.copy(b.p)
-      freeBall.rotateOnWorldAxis(shot.spinAxis, -delta * 9)
-      const rimY = physics.rim.y
-      const done = b.scored || (b.crossed && b.p.y < rimY - 0.5) || b.age > 3.5 || (b.p.y < 1 && b.v.y < 0 && b.age > 0.6)
-      if (!shot.judged && done) judge()
-    }
-    // 投籃動作做完、判定完一段時間後，把球交回角色手上
-    if (shot.judged && shotTime >= (drive ? drive.length : SHOOT_LENGTH) && shotTime >= shot.judgedAt + BALL_BACK_DELAY) {
-      freeBall.visible = false
-      shot = null
+    // 動作做完就可以動了，空手去撿球
+    if (shotTime >= (drive ? drive.length : SHOOT_LENGTH)) {
       mode = 'free'
-      setClip(CLIPS.stand)
+      hasBall = false
     }
+  }
+
+  // 投出去的球：物理計算、判定，在地上滾的時候照速度轉動
+  function updateLooseBall(delta) {
+    const b = shot.ball
+    physics.update(b, delta)
+    keepInCourt(b)
+    freeBall.position.copy(b.p)
+    if (b.p.y <= BALL_RADIUS + 0.01) {
+      const v = Math.hypot(b.v.x, b.v.z)
+      if (v > 1e-3) freeBall.rotateOnWorldAxis(rollAxis.set(b.v.z / v, 0, -b.v.x / v), (v / BALL_RADIUS) * delta)
+    } else {
+      freeBall.rotateOnWorldAxis(shot.spinAxis, -delta * 9)
+    }
+    const rimY = physics.rim.y
+    const done = b.scored || (b.crossed && b.p.y < rimY - 0.5) || b.age > 3.5 || (b.p.y < 1 && b.v.y < 0 && b.age > 0.6)
+    if (!shot.judged && done) judge()
+  }
+
+  // 球場四周當成有圍欄：球滾出撿球範圍時彈回來
+  function keepInCourt(b) {
+    for (const [axis, lo, hi] of [
+      ['x', -COURT.HALF_WIDTH + MARGIN, COURT.HALF_WIDTH - MARGIN],
+      ['z', BASELINE_Z + MARGIN, BASELINE_Z + COURT.HALF_LENGTH - MARGIN],
+    ]) {
+      if (b.p[axis] < lo || b.p[axis] > hi) {
+        b.p[axis] = THREE.MathUtils.clamp(b.p[axis], lo, hi)
+        b.v[axis] *= -0.5
+      }
+    }
+  }
+
+  // 判定完、球夠低又在角色腳邊就撿起來，接著運球
+  function tryPickup() {
+    const b = shot.ball
+    const p = character.position
+    if (!shot.judged || b.p.y > PICKUP_HEIGHT || Math.hypot(b.p.x - p.x, b.p.z - p.z) > PICKUP_RADIUS) return
+    freeBall.visible = false
+    shot = null
+    hasBall = true
+    const dir = inputDirection()
+    setClip(dir ? (held.has('KeyA') ? CLIPS.sprint : CLIPS.walk) : CLIPS.stand, PICKUP_FADE)
   }
 
   // k：這一格鏡頭往目標移動的比例（1 是直接到位）
@@ -477,6 +516,11 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     if (mode === 'drive') updateDrive()
     if (mode === 'charge') updateCharge(delta)
     if (mode === 'shoot') updateShot(delta)
+    if (shot?.ball) updateLooseBall(delta)
+    if (!hasBall) {
+      stage.getBall().visible = false // 沒持球時，動作裡的球（例如 Idle 放在腳邊的球）不顯示
+      tryPickup()
+    }
     const k = Math.min(1, delta / CAMERA.ease)
     cameraYaw = wrapAngle(cameraYaw + wrapAngle(yawToAim() - cameraYaw) * k)
     placeCamera(k)
