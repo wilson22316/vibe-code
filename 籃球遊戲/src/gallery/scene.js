@@ -111,7 +111,11 @@ const DEFAULT_CLIP = 'Idle'
 const FADE_SECONDS = 0.35
 const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup', 'Pass', 'Catch', 'Rebound', 'Dunk', 'Celebrate', 'Frustrated'])
 
-export function createGallery(container) {
+// 隊伍配色會換的材質（見 CLAUDE.md）
+const TEAM_MATERIALS = { shirt: 'Athlete_Shirt', shorts: 'Athlete_Shorts' }
+
+// options：interactive 是否能拖曳旋轉鏡頭；clip 一開始播的動作；view 鏡頭位置與注視點（主畫面背景用）
+export function createGallery(container, { interactive = true, clip = DEFAULT_CLIP, view = null } = {}) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
@@ -121,11 +125,12 @@ export function createGallery(container) {
   scene.background = createSky()
 
   const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 100)
-  camera.position.copy(HOME_POS)
+  camera.position.copy(view?.position ?? HOME_POS)
 
   // 拖曳旋轉、滾輪縮放、右鍵平移。最近 0.4 m 方便近看手指，鏡頭不會轉到地面以下。
   const controls = new OrbitControls(camera, renderer.domElement)
-  controls.target.copy(HOME_TGT)
+  controls.target.copy(view?.target ?? HOME_TGT)
+  controls.enabled = interactive
   controls.enableDamping = true
   controls.minDistance = 0.4
   controls.maxDistance = 9
@@ -238,6 +243,18 @@ export function createGallery(container) {
     grid.visible = visible
   }
 
+  // 隊伍配色：{ shirt, shorts } 的 sRGB 色碼。模型還沒載入時先記下來，載入後套用
+  const teamMaterials = []
+  let teamColors = null
+
+  function setTeamColors(colors) {
+    teamColors = { ...colors }
+    for (const material of teamMaterials) {
+      const part = Object.keys(TEAM_MATERIALS).find((k) => material.name.startsWith(TEAM_MATERIALS[k]))
+      if (teamColors[part]) material.color.set(teamColors[part])
+    }
+  }
+
   // 載入角色並播放 Idle；失敗時 ready 會 reject，由畫面顯示錯誤
   const ready = new GLTFLoader().loadAsync(MODEL_URL).then((gltf) => {
     const root = gltf.scene
@@ -248,6 +265,7 @@ export function createGallery(container) {
     root.traverse((o) => o.isMesh && meshes.push(o))
     for (const o of meshes) {
       o.material = toToon(o.material, gradientMap)
+      if (Object.values(TEAM_MATERIALS).some((n) => o.material.name.startsWith(n))) teamMaterials.push(o.material)
       o.castShadow = true
       // 骨架網格與球的包圍盒不會跟著動作更新，關掉視錐剔除以免動作中途消失
       o.frustumCulled = false
@@ -276,9 +294,10 @@ export function createGallery(container) {
       }
       actions[clip.name] = action
     }
-    play(DEFAULT_CLIP)
+    if (teamColors) setTeamColors(teamColors)
+    play(clip)
 
-    return { clips: gltf.animations.map((c) => c.name), current: DEFAULT_CLIP }
+    return { clips: gltf.animations.map((c) => c.name), current: clip }
   })
 
   renderer.setAnimationLoop((time) => {
@@ -299,6 +318,7 @@ export function createGallery(container) {
     setSkeletonVisible,
     setGridVisible,
     setMovePush,
+    setTeamColors,
     dispose() {
       renderer.setAnimationLoop(null)
       resizeObserver.disconnect()
