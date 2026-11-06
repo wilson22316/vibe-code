@@ -173,6 +173,7 @@ export function createCourt({ basketZ = -4.2, material }) {
 
   const net = createNet(new THREE.LineBasicMaterial({ color: COLORS.net }))
   net.position.set(0, C.RIM_HEIGHT, basketZ)
+  net.name = 'Net'
   group.add(net)
 
   // 籃架：底線後方 1 m 的柱子，往前伸出橫臂撐住籃板

@@ -90,7 +90,7 @@ export function startClipsAtZero(clips) {
 const BALL_NODE = 'Ball'
 // 原地移動的動作，遊戲以這些速度（m/s）推動角色腳才不會打滑（見 CLAUDE.md；建置時印出的 move_speeds 為準）
 // 值可以是固定速度，或「動作時間 → 速度」的函式（單次動作速度會變）。
-const MOVE_SPEEDS = {
+export const MOVE_SPEEDS = {
   Sprint: 2.843,
   DribbleWalk: 0.979,
   Jog: 1.99,
@@ -116,7 +116,7 @@ const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup', 'Pass', 'Ca
 const TEAM_MATERIALS = { shirt: 'Athlete_Shirt', shorts: 'Athlete_Shorts' }
 
 // 夜晚球場（主畫面）：籃框在角色後方 4.2 m（罰球線附近），照明燈在球場四角
-const NIGHT_BASKET_Z = -4.2
+export const NIGHT_BASKET_Z = -4.2
 const FLOODLIGHTS = [[-9.5, -7.5], [9.5, -7.5], [-9.5, 9], [9.5, 9]]
 const NIGHT_HEMI = { sky: 0x6f78b8, ground: 0x2e3440, intensity: 0.45 * Math.PI }
 const SPOT = { color: 0xffe2b0, intensity: 0.95 * Math.PI, position: [-4.5, 8, 7] }
@@ -176,8 +176,13 @@ function addNightCourt(scene, gradientMap, outline) {
 }
 
 // options：interactive 是否能拖曳旋轉鏡頭；clip 一開始播的動作；view 鏡頭位置與注視點；
-// setting 場景：'meadow' 白天草地（展示館）、'night-court' 夜晚球場（主畫面）
-export function createGallery(container, { interactive = true, clip = DEFAULT_CLIP, view = null, setting = 'meadow' } = {}) {
+// setting 場景：'meadow' 白天草地（展示館）、'night-court' 夜晚球場（主畫面）；
+// onFrame(delta) 每格呼叫一次：有的話由呼叫端（主畫面的導播）自己擺角色與鏡頭，展示館的「前進」不作用；
+// viewShift 畫面中心往右移的比例（0～0.5），左邊留給選單
+export function createGallery(
+  container,
+  { interactive = true, clip = DEFAULT_CLIP, view = null, setting = 'meadow', onFrame = null, viewShift = 0 } = {},
+) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
@@ -213,6 +218,7 @@ export function createGallery(container, { interactive = true, clip = DEFAULT_CL
     if (!w || !h) return
     renderer.setSize(w, h)
     camera.aspect = w / h
+    if (viewShift) camera.setViewOffset(w, h, -w * viewShift, 0, w, h)
     camera.updateProjectionMatrix()
     coverBackground(w / h)
   }
@@ -278,13 +284,30 @@ export function createGallery(container, { interactive = true, clip = DEFAULT_CL
     ball.visible = !scale || scale.evaluate(current.time)[0] > 0.5
   }
 
-  // 切換動作：新動作從頭播，和目前的動作淡入淡出。再點同一個動作會直接從頭播。
-  function play(name) {
+  // 切換動作：新動作從頭播，和目前的動作淡入淡出（fade 秒）。再點同一個動作會直接從頭播。
+  function play(name, fade = FADE_SECONDS) {
     const next = actions[name]
     if (!next) throw new Error(`模型裡找不到 ${name} 動作`)
     next.reset().setEffectiveWeight(1).play()
-    if (current && current !== next) next.crossFadeFrom(current, FADE_SECONDS, false)
+    if (current && current !== next) {
+      if (fade > 0) next.crossFadeFrom(current, fade, false)
+      else current.stop()
+    }
     current = next
+  }
+
+  // 動作 name 第 time 秒時，球心在角色座標裡的位置（角色在原點、面向 +Z）。播放中的動作會停掉，之後要重新 play
+  function sampleBall(name, time) {
+    mixer.stopAllAction()
+    const action = actions[name]
+    action.reset().play()
+    action.time = time
+    mixer.update(0)
+    character.updateMatrixWorld(true)
+    const p = character.worldToLocal(ball.getWorldPosition(new THREE.Vector3()))
+    action.stop()
+    current = null
+    return p
   }
 
   // 播放速度倍數，作用在整個 mixer，切換動作後仍維持
@@ -360,8 +383,12 @@ export function createGallery(container, { interactive = true, clip = DEFAULT_CL
     const delta = timer.getDelta()
     mixer?.update(delta)
     updateBallVisibility()
-    updateMovePush(delta)
-    controls.update()
+    if (onFrame) {
+      if (character) onFrame(delta)
+    } else {
+      updateMovePush(delta)
+    }
+    if (interactive) controls.update()
     renderer.render(scene, camera)
   })
 
@@ -374,6 +401,11 @@ export function createGallery(container, { interactive = true, clip = DEFAULT_CL
     setGridVisible,
     setMovePush,
     setTeamColors,
+    sampleBall,
+    camera,
+    actionTime: () => current?.time ?? 0,
+    getCharacter: () => character,
+    getBall: () => ball,
     dispose() {
       renderer.setAnimationLoop(null)
       resizeObserver.disconnect()

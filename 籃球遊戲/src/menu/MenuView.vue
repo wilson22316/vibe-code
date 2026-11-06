@@ -1,14 +1,16 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createGallery } from '../gallery/scene.js'
+import { createHighlightReel } from './highlightReel.js'
 import { DEFAULT_COLORS, KITS, loadColors, saveColors } from './teamColors.js'
 
-// 主畫面背景：夜晚球場，角色在畫面右側原地運球、籃框在後方，鏡頭固定（不能拖曳）
-const BACKDROP = {
-  setting: 'night-court',
-  clip: 'Dribble',
-  view: { position: { x: -0.6, y: 1.1, z: 5.2 }, target: { x: -1.2, y: 1.55, z: -1 } },
-}
+// 主畫面背景：夜晚球場的精華片段（見 highlightReel.js），鏡頭由導播控制；畫面中心往右移，左邊留給選單
+const BACKDROP = { setting: 'night-court', clip: 'Crossover', viewShift: 0.16 }
+
+// 比分看板：主隊每次灌籃 +2 反超；重播轉場時回到原本的比分
+const START_SCORE = { home: 86, away: 87 }
+const GAME_CLOCK = 120 // 第四節剩下的秒數，倒數到 0 再重來
+const SHOT_CLOCK = 24
 
 // 選單項目：to 是要切到的畫面；soon 表示還沒做好（顯示「即將推出」、不能點）
 const MAIN_ITEMS = [
@@ -40,6 +42,38 @@ const screen = ref('main') // main | modes | colors | controls
 const colors = ref(loadColors())
 let backdrop = null
 
+const score = ref({ ...START_SCORE })
+const scored = ref(false) // 剛得分：比分跳一下
+const gameClock = ref(GAME_CLOCK)
+const shotClock = ref(SHOT_CLOCK)
+const wipeKey = ref(0) // 每次重播轉場加 1，讓轉場動畫重新播放
+let ticker = 0
+
+// 客隊配色：和主隊不同的一套
+const awayColor = computed(() => (colors.value.shirt === KITS[4].shirt ? KITS[1].shirt : KITS[4].shirt))
+const clockText = computed(() => `${Math.floor(gameClock.value / 60)}:${String(gameClock.value % 60).padStart(2, '0')}`)
+
+const reel = createHighlightReel({
+  onScore() {
+    score.value.home += 2
+    shotClock.value = SHOT_CLOCK
+    scored.value = false
+    requestAnimationFrame(() => (scored.value = true))
+  },
+  onWipe() {
+    wipeKey.value++
+    setTimeout(() => {
+      score.value = { ...START_SCORE }
+      scored.value = false
+    }, 400)
+  },
+})
+
+function tick() {
+  gameClock.value = gameClock.value > 0 ? gameClock.value - 1 : GAME_CLOCK
+  shotClock.value = shotClock.value > 0 ? shotClock.value - 1 : SHOT_CLOCK
+}
+
 function open(item) {
   if (!item.soon) screen.value = item.to
 }
@@ -70,11 +104,12 @@ function onKey(event) {
 }
 
 onMounted(() => {
-  backdrop = createGallery(stage.value, { interactive: false, ...BACKDROP })
+  backdrop = createGallery(stage.value, { interactive: false, ...BACKDROP, onFrame: (delta) => reel.update(delta) })
   backdrop.setTeamColors(colors.value)
   backdrop.ready.then(
     () => {
       status.value = ''
+      reel.start(backdrop)
     },
     (err) => {
       status.value = `模型載入失敗：${err.message ?? err}`
@@ -82,9 +117,11 @@ onMounted(() => {
     },
   )
   window.addEventListener('keydown', onKey)
+  ticker = setInterval(tick, 1000)
 })
 
 onBeforeUnmount(() => {
+  clearInterval(ticker)
   window.removeEventListener('keydown', onKey)
   backdrop?.dispose()
 })
@@ -93,6 +130,23 @@ onBeforeUnmount(() => {
 <template>
   <div ref="stage" class="stage"></div>
   <p v-if="status" class="status">{{ status }}</p>
+
+  <!-- 轉播畫面右上角的比分看板 -->
+  <div class="scorebug" aria-hidden="true">
+    <span class="live"><i></i>LIVE</span>
+    <span class="team" :style="{ '--team': colors.shirt }">HOME</span>
+    <b class="score" :class="{ pop: scored }">{{ score.home }}</b>
+    <b class="score">{{ score.away }}</b>
+    <span class="team" :style="{ '--team': awayColor }">AWAY</span>
+    <span class="period">Q4</span>
+    <span class="clock">{{ clockText }}</span>
+    <span class="shot">{{ shotClock }}</span>
+  </div>
+
+  <!-- 重播轉場：斜切的色帶掃過畫面，蓋滿時鏡頭換回第一個畫面 -->
+  <div v-if="wipeKey" :key="wipeKey" class="wipe" :style="{ '--team': colors.shirt }" aria-hidden="true">
+    <span>REPLAY</span>
+  </div>
 
   <main class="menu">
     <h1 class="title">バスケ！</h1>
@@ -175,18 +229,18 @@ onBeforeUnmount(() => {
   position: fixed;
   top: 0;
   bottom: 0;
-  left: max(16px, 6vw);
+  left: max(16px, 5vw);
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 20px;
+  gap: 18px;
   width: min(360px, calc(100vw - 32px));
-  color: #4a3326;
+  color: #fcf9f2;
   font-family: sans-serif;
 }
 
 .title {
-  margin: 0;
+  margin: 0 0 6px;
   color: #ffd98a;
   font-size: clamp(44px, 9vw, 76px);
   font-style: italic;
@@ -199,32 +253,39 @@ onBeforeUnmount(() => {
     0 5px 0 #e0733f,
     0 8px 0 #4a3326,
     0 0 28px rgba(255, 190, 110, 0.55);
+  animation: title-in 0.6s cubic-bezier(0.2, 1.6, 0.4, 1) both;
 }
 
+@keyframes title-in {
+  from {
+    opacity: 0;
+    transform: translateX(-40px) skewX(-12deg);
+  }
+}
+
+/* 轉播字卡風格：深色半透明底、左邊橘色色條、右下斜切 */
 .panel {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 20px;
-  border: 2px solid #4a3326;
-  border-radius: 14px;
-  background: rgba(252, 249, 242, 0.92);
-  box-shadow: 0 4px 0 #4a3326;
+  padding: 18px 26px 18px 20px;
+  border-left: 6px solid #e0733f;
+  background: linear-gradient(100deg, rgba(21, 27, 58, 0.9), rgba(21, 27, 58, 0.62));
+  clip-path: polygon(0 0, 100% 0, calc(100% - 18px) 100%, 0 100%);
 }
 
 h2 {
   margin: 0;
-  font-size: 20px;
+  color: #ffd98a;
+  font-size: 15px;
+  font-style: italic;
+  letter-spacing: 0.2em;
 }
 
 .items {
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-
-nav.items {
-  padding: 20px;
 }
 
 button {
@@ -237,24 +298,55 @@ button {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 12px 16px;
-  border: 2px solid #4a3326;
-  border-radius: 10px;
-  background: #6aa79c;
-  color: #fff;
+  padding: 11px 24px 11px 16px;
+  border: none;
+  background: #fcf9f2;
+  color: #2b2f5e;
   font-size: 18px;
-  font-weight: bold;
+  font-style: italic;
+  font-weight: 900;
   text-align: left;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  transition:
+    transform 0.15s,
+    background 0.15s,
+    color 0.15s;
+  animation: slide-in 0.4s both;
+}
+
+.item:nth-child(2) {
+  animation-delay: 0.05s;
+}
+
+.item:nth-child(3) {
+  animation-delay: 0.1s;
+}
+
+.item:nth-child(4) {
+  animation-delay: 0.15s;
+}
+
+.item:nth-child(5) {
+  animation-delay: 0.2s;
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
 }
 
 .item:hover:not(:disabled),
 .item:focus-visible {
-  background: #5a9488;
+  background: #e0733f;
+  color: #fff;
+  transform: translateX(10px);
 }
 
 .item:disabled {
-  background: #e4ddd0;
-  color: #8a7a6c;
+  background: rgba(252, 249, 242, 0.22);
+  color: rgba(252, 249, 242, 0.6);
   cursor: not-allowed;
 }
 
@@ -267,17 +359,25 @@ button {
   margin-left: auto;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #d97b5c;
+  background: #e0733f;
   color: #fff;
   font-size: 12px;
+  font-style: normal;
   font-weight: normal;
 }
 
 .back {
   padding: 8px 16px;
-  border: 2px solid #4a3326;
-  border-radius: 10px;
+  border: 2px solid #fcf9f2;
+  background: transparent;
+  font-style: italic;
+  font-weight: bold;
+}
+
+.back:hover,
+.back:focus-visible {
   background: #fcf9f2;
+  color: #2b2f5e;
 }
 
 .row {
@@ -304,15 +404,15 @@ button {
 }
 
 .kit.active {
-  border-color: #4a3326;
-  background: #fff;
+  border-color: #ffd98a;
+  background: rgba(252, 249, 242, 0.12);
 }
 
 .swatch {
   display: flex;
   flex-direction: column;
   width: 36px;
-  border: 2px solid #4a3326;
+  border: 2px solid #fcf9f2;
   border-radius: 6px;
   overflow: hidden;
 }
@@ -331,7 +431,7 @@ button {
   width: 56px;
   height: 32px;
   padding: 0;
-  border: 2px solid #4a3326;
+  border: 2px solid #fcf9f2;
   border-radius: 6px;
   background: none;
   cursor: pointer;
@@ -345,19 +445,152 @@ button {
 .keys th,
 .keys td {
   padding: 6px 4px;
-  border-bottom: 1px solid #d8cfc0;
+  border-bottom: 1px solid rgba(252, 249, 242, 0.2);
   text-align: left;
   vertical-align: top;
 }
 
 .keys th {
-  white-space: nowrap;
   padding-right: 12px;
+  color: #ffd98a;
+  white-space: nowrap;
 }
 
 .note {
   margin: 0;
+  color: rgba(252, 249, 242, 0.7);
   font-size: 13px;
-  color: #8a7a6c;
+}
+
+/* 比分看板 */
+.scorebug {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+  border-bottom: 3px solid #e0733f;
+  background: rgba(21, 27, 58, 0.9);
+  color: #fcf9f2;
+  font: italic 900 16px sans-serif;
+  clip-path: polygon(12px 0, 100% 0, 100% 100%, 0 100%);
+}
+
+.scorebug > * {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+}
+
+.live {
+  gap: 6px;
+  padding-left: 20px !important;
+  background: #c7384e;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+
+.live i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  animation: blink 1s steps(2) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+.team {
+  border-left: 6px solid var(--team);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+}
+
+.score {
+  justify-content: center;
+  min-width: 2.2ch;
+  background: rgba(252, 249, 242, 0.1);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.score.pop {
+  animation: pop 0.6s;
+}
+
+@keyframes pop {
+  30% {
+    color: #ffd98a;
+    transform: scale(1.4);
+  }
+}
+
+.period,
+.clock {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.shot {
+  justify-content: center;
+  min-width: 2ch;
+  background: #e0733f;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 重播轉場：色帶從畫面外左邊掃到畫面外右邊，一半時間（0.4 s）時剛好蓋滿畫面（-35vw～135vw） */
+.wipe {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.wipe::before {
+  content: '';
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  left: 0;
+  width: 170vw;
+  border-right: 14px solid #ffd98a;
+  border-left: 14px solid #e0733f;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.12) 0 18px, transparent 18px 46px),
+    var(--team);
+  transform: translateX(-200vw) skewX(-14deg);
+  animation: wipe 0.8s ease-in-out forwards;
+}
+
+.wipe span {
+  position: relative;
+  color: #fcf9f2;
+  font: italic 900 clamp(40px, 8vw, 72px) sans-serif;
+  letter-spacing: 0.1em;
+  -webkit-text-stroke: 3px #4a3326;
+  paint-order: stroke fill;
+  opacity: 0;
+  animation: wipe-text 0.8s forwards;
+}
+
+@keyframes wipe {
+  to {
+    transform: translateX(130vw) skewX(-14deg);
+  }
+}
+
+@keyframes wipe-text {
+  35%,
+  65% {
+    opacity: 1;
+  }
 }
 </style>
