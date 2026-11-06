@@ -2,7 +2,8 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { createGrass, createSky } from './backdrop.js'
+import { NIGHT_GROUND, createFloodlights, createGrass, createNightSky, createSky } from './backdrop.js'
+import { createCourt } from '../game/court.js'
 
 const MODEL_URL = `${import.meta.env.BASE_URL}models/athlete_game.glb`
 
@@ -89,7 +90,7 @@ export function startClipsAtZero(clips) {
 const BALL_NODE = 'Ball'
 // 原地移動的動作，遊戲以這些速度（m/s）推動角色腳才不會打滑（見 CLAUDE.md；建置時印出的 move_speeds 為準）
 // 值可以是固定速度，或「動作時間 → 速度」的函式（單次動作速度會變）。
-const MOVE_SPEEDS = {
+export const MOVE_SPEEDS = {
   Sprint: 2.843,
   DribbleWalk: 0.979,
   Jog: 1.99,
@@ -111,27 +112,19 @@ const DEFAULT_CLIP = 'Idle'
 const FADE_SECONDS = 0.35
 const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup', 'Pass', 'Catch', 'Rebound', 'Dunk', 'Celebrate', 'Frustrated'])
 
-export function createGallery(container) {
-  const renderer = new THREE.WebGLRenderer({ antialias: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  renderer.shadowMap.enabled = true
-  container.appendChild(renderer.domElement)
+// 隊伍配色會換的材質（見 CLAUDE.md）
+const TEAM_MATERIALS = { shirt: 'Athlete_Shirt', shorts: 'Athlete_Shorts' }
 
-  const scene = new THREE.Scene()
+// 夜晚球場（主畫面）：籃框在角色後方 4.2 m（罰球線附近），照明燈在球場四角
+export const NIGHT_BASKET_Z = -4.2
+const FLOODLIGHTS = [[-9.5, -7.5], [9.5, -7.5], [-9.5, 9], [9.5, 9]]
+const NIGHT_HEMI = { sky: 0x6f78b8, ground: 0x2e3440, intensity: 0.45 * Math.PI }
+const SPOT = { color: 0xffe2b0, intensity: 0.95 * Math.PI, position: [-4.5, 8, 7] }
+const RIM_LIGHT = { color: 0x9fb4ff, intensity: 0.55 * Math.PI, position: [3, 5, -6] }
+
+// 白天草地（展示館）：藍天白雲、草地圓盤、只顯示陰影的圓盤
+function addMeadow(scene) {
   scene.background = createSky()
-
-  const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 100)
-  camera.position.copy(HOME_POS)
-
-  // 拖曳旋轉、滾輪縮放、右鍵平移。最近 0.4 m 方便近看手指，鏡頭不會轉到地面以下。
-  const controls = new OrbitControls(camera, renderer.domElement)
-  controls.target.copy(HOME_TGT)
-  controls.enableDamping = true
-  controls.minDistance = 0.4
-  controls.maxDistance = 9
-  controls.maxPolarAngle = Math.PI * 0.495
-  controls.update()
-
   scene.add(new THREE.HemisphereLight(SKY_COLOR, GROUND_COLOR, HEMI_INTENSITY))
   const sun = new THREE.DirectionalLight(SUN_COLOR, SUN_INTENSITY)
   sun.position.set(-2.5, 5, 3.5)
@@ -141,7 +134,6 @@ export function createGallery(container) {
   sun.shadow.radius = 4
   scene.add(sun)
 
-  // 地面：草地圓盤，上面疊一層只顯示陰影的圓盤
   scene.add(createGrass())
 
   const shadowCatcher = new THREE.Mesh(
@@ -151,6 +143,69 @@ export function createGallery(container) {
   shadowCatcher.rotation.x = -Math.PI / 2
   shadowCatcher.receiveShadow = true
   scene.add(shadowCatcher)
+}
+
+// 夜晚球場：夜空與城市剪影、半場球場與籃架、照明燈；主光從左前上方打下來，後方一道冷色輪廓光
+function addNightCourt(scene, gradientMap, outline) {
+  scene.background = createNightSky()
+  scene.fog = new THREE.Fog(NIGHT_GROUND, 14, 34)
+  const material = (hex) => new THREE.MeshToonMaterial({ color: hex, gradientMap })
+
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 48), material(NIGHT_GROUND))
+  ground.rotation.x = -Math.PI / 2
+  ground.position.y = -0.005
+  scene.add(ground)
+  const court = createCourt({ basketZ: NIGHT_BASKET_Z, material })
+  const lights = createFloodlights({ positions: FLOODLIGHTS, material })
+  for (const group of [court, lights]) {
+    group.traverse((o) => o.isMesh && o.userData.outline && o.add(createOutline(o, outline)))
+    scene.add(group)
+  }
+
+  scene.add(new THREE.HemisphereLight(linear(NIGHT_HEMI.sky), linear(NIGHT_HEMI.ground), NIGHT_HEMI.intensity))
+  const spot = new THREE.SpotLight(linear(SPOT.color), SPOT.intensity, 0, 0.42, 0.5, 0)
+  spot.position.set(...SPOT.position)
+  spot.target.position.set(0, 0.8, -1)
+  spot.castShadow = true
+  spot.shadow.mapSize.set(2048, 2048)
+  spot.shadow.radius = 4
+  scene.add(spot, spot.target)
+  const rim = new THREE.DirectionalLight(linear(RIM_LIGHT.color), RIM_LIGHT.intensity)
+  rim.position.set(...RIM_LIGHT.position)
+  scene.add(rim)
+}
+
+// options：interactive 是否能拖曳旋轉鏡頭；clip 一開始播的動作；view 鏡頭位置與注視點；
+// setting 場景：'meadow' 白天草地（展示館）、'night-court' 夜晚球場（主畫面）；
+// onFrame(delta) 每格呼叫一次：有的話由呼叫端（主畫面的導播）自己擺角色與鏡頭，展示館的「前進」不作用；
+// viewShift 畫面中心往右移的比例（0～0.5），左邊留給選單
+export function createGallery(
+  container,
+  { interactive = true, clip = DEFAULT_CLIP, view = null, setting = 'meadow', onFrame = null, viewShift = 0 } = {},
+) {
+  const renderer = new THREE.WebGLRenderer({ antialias: true })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer.shadowMap.enabled = true
+  container.appendChild(renderer.domElement)
+
+  const scene = new THREE.Scene()
+  const gradientMap = createToonGradient()
+  const outline = createOutlineMaterial()
+  if (setting === 'night-court') addNightCourt(scene, gradientMap, outline)
+  else addMeadow(scene)
+
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 100)
+  camera.position.copy(view?.position ?? HOME_POS)
+
+  // 拖曳旋轉、滾輪縮放、右鍵平移。最近 0.4 m 方便近看手指，鏡頭不會轉到地面以下。
+  const controls = new OrbitControls(camera, renderer.domElement)
+  controls.target.copy(view?.target ?? HOME_TGT)
+  controls.enabled = interactive
+  controls.enableDamping = true
+  controls.minDistance = 0.4
+  controls.maxDistance = 9
+  controls.maxPolarAngle = Math.PI * 0.495
+  controls.update()
 
   // 地面格線：5 m 見方、每格 0.25 m，用來看腳有沒有打滑；預設隱藏
   const grid = new THREE.GridHelper(5, 20, 0x4a3326, 0x6f7f62)
@@ -163,7 +218,20 @@ export function createGallery(container) {
     if (!w || !h) return
     renderer.setSize(w, h)
     camera.aspect = w / h
+    if (viewShift) camera.setViewOffset(w, h, -w * viewShift, 0, w, h)
     camera.updateProjectionMatrix()
+    coverBackground(w / h)
+  }
+
+  // 背景貼圖像 CSS 的 object-fit: cover 一樣裁切，寬螢幕時月亮、雲才不會被拉扁
+  function coverBackground(aspect) {
+    const bg = scene.background
+    const image = bg?.image
+    if (!image?.width) return
+    const ratio = image.width / image.height
+    if (aspect > ratio) bg.repeat.set(1, ratio / aspect)
+    else bg.repeat.set(aspect / ratio, 1)
+    bg.offset.set((1 - bg.repeat.x) / 2, (1 - bg.repeat.y) / 2)
   }
   const resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(container)
@@ -216,13 +284,30 @@ export function createGallery(container) {
     ball.visible = !scale || scale.evaluate(current.time)[0] > 0.5
   }
 
-  // 切換動作：新動作從頭播，和目前的動作淡入淡出。再點同一個動作會直接從頭播。
-  function play(name) {
+  // 切換動作：新動作從頭播，和目前的動作淡入淡出（fade 秒）。再點同一個動作會直接從頭播。
+  function play(name, fade = FADE_SECONDS) {
     const next = actions[name]
     if (!next) throw new Error(`模型裡找不到 ${name} 動作`)
     next.reset().setEffectiveWeight(1).play()
-    if (current && current !== next) next.crossFadeFrom(current, FADE_SECONDS, false)
+    if (current && current !== next) {
+      if (fade > 0) next.crossFadeFrom(current, fade, false)
+      else current.stop()
+    }
     current = next
+  }
+
+  // 動作 name 第 time 秒時，球心在角色座標裡的位置（角色在原點、面向 +Z）。播放中的動作會停掉，之後要重新 play
+  function sampleBall(name, time) {
+    mixer.stopAllAction()
+    const action = actions[name]
+    action.reset().play()
+    action.time = time
+    mixer.update(0)
+    character.updateMatrixWorld(true)
+    const p = character.worldToLocal(ball.getWorldPosition(new THREE.Vector3()))
+    action.stop()
+    current = null
+    return p
   }
 
   // 播放速度倍數，作用在整個 mixer，切換動作後仍維持
@@ -238,16 +323,27 @@ export function createGallery(container) {
     grid.visible = visible
   }
 
+  // 隊伍配色：{ shirt, shorts } 的 sRGB 色碼。模型還沒載入時先記下來，載入後套用
+  const teamMaterials = []
+  let teamColors = null
+
+  function setTeamColors(colors) {
+    teamColors = { ...colors }
+    for (const material of teamMaterials) {
+      const part = Object.keys(TEAM_MATERIALS).find((k) => material.name.startsWith(TEAM_MATERIALS[k]))
+      if (teamColors[part]) material.color.set(teamColors[part])
+    }
+  }
+
   // 載入角色並播放 Idle；失敗時 ready 會 reject，由畫面顯示錯誤
   const ready = new GLTFLoader().loadAsync(MODEL_URL).then((gltf) => {
     const root = gltf.scene
-    const gradientMap = createToonGradient()
-    const outline = createOutlineMaterial()
     // 先收集再處理，免得 traverse 走進剛加上的描邊網格
     const meshes = []
     root.traverse((o) => o.isMesh && meshes.push(o))
     for (const o of meshes) {
       o.material = toToon(o.material, gradientMap)
+      if (Object.values(TEAM_MATERIALS).some((n) => o.material.name.startsWith(n))) teamMaterials.push(o.material)
       o.castShadow = true
       // 骨架網格與球的包圍盒不會跟著動作更新，關掉視錐剔除以免動作中途消失
       o.frustumCulled = false
@@ -276,9 +372,10 @@ export function createGallery(container) {
       }
       actions[clip.name] = action
     }
-    play(DEFAULT_CLIP)
+    if (teamColors) setTeamColors(teamColors)
+    play(clip)
 
-    return { clips: gltf.animations.map((c) => c.name), current: DEFAULT_CLIP }
+    return { clips: gltf.animations.map((c) => c.name), current: clip }
   })
 
   renderer.setAnimationLoop((time) => {
@@ -286,8 +383,12 @@ export function createGallery(container) {
     const delta = timer.getDelta()
     mixer?.update(delta)
     updateBallVisibility()
-    updateMovePush(delta)
-    controls.update()
+    if (onFrame) {
+      if (character) onFrame(delta)
+    } else {
+      updateMovePush(delta)
+    }
+    if (interactive) controls.update()
     renderer.render(scene, camera)
   })
 
@@ -299,6 +400,12 @@ export function createGallery(container) {
     setSkeletonVisible,
     setGridVisible,
     setMovePush,
+    setTeamColors,
+    sampleBall,
+    camera,
+    actionTime: () => current?.time ?? 0,
+    getCharacter: () => character,
+    getBall: () => ball,
     dispose() {
       renderer.setAnimationLoop(null)
       resizeObserver.disconnect()
