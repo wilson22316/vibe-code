@@ -285,10 +285,11 @@ export function createGallery(
   }
 
   // 切換動作：新動作從頭播，和目前的動作淡入淡出（fade 秒）。再點同一個動作會直接從頭播。
-  function play(name, fade = FADE_SECONDS) {
+  // timeScale 是這個動作自己的播放速度倍數（遊戲調快衝刺時，動作跟著加快腳才不會打滑）
+  function play(name, fade = FADE_SECONDS, timeScale = 1) {
     const next = actions[name]
     if (!next) throw new Error(`模型裡找不到 ${name} 動作`)
-    next.reset().setEffectiveWeight(1).play()
+    next.reset().setEffectiveTimeScale(timeScale).setEffectiveWeight(1).play()
     if (current && current !== next) {
       if (fade > 0) next.crossFadeFrom(current, fade, false)
       else current.stop()
