@@ -7,7 +7,7 @@
   Idle     48 格循環  無球待機，球放在右腳前方地上
   Dribble  24 格循環  原地運球
   Shoot    36 格單次  跳投，第 18 格（0.75 秒）出手，之後球縮放為 0、交給遊戲接手；出手後手臂停在前上方再收回
-  Sprint   12 格循環  原地運球衝刺，遊戲端以 SPRINT_SPEED 公尺/秒推動角色
+  Sprint   16 格循環  原地運球衝刺，遊戲端以 SPRINT_SPEED 公尺/秒推動角色
 """
 import math
 
@@ -545,9 +545,15 @@ def make_shoot(P):
         P.key(f + 1, B, 1.0 if f <= SHOOT_RELEASE_FRAME else 0.0)
 
 
-def gait(N, S, YF, YB, lift, toe):
+BALL_OF_FOOT = 0.11        # 腳踝到前腳掌著地點的水平距離（縮放前）：腳跟抬起時腳踝跟著升高，前腳掌留在地上
+
+
+def gait(N, S, YF, YB, lift, toe, kick=1.0, push=0.0, strike=0.0):
     """原地步態的單腳循環。N：一個循環的影格數；S：著地佔的比例；YF、YB：腳最前、最後的位置；
     lift：擺動時腳抬多高；toe：擺動時腳尖下壓的最大弧度。回傳 (foot_cycle, 推動速度 m/s)。
+    跑步另外用三個參數（預設值等於走路，不啟用）：
+    kick 小於 1 時擺動腳的最高點提前（離地後腳跟先往後上方踢，再提膝往前，而不是貼著地面平移）；
+    push 是蹬地末段腳跟抬起的弧度（前腳掌留在地上、腳踝升高）；strike 是落地時腳尖微微翹起的弧度。
     著地時腳以固定速度往後移，遊戲以同樣速度推動角色，腳才不會打滑。
     擺動腳的前後位置用 Hermite 曲線：離地時接著著地的往後速度，落地前一格也已經用著地速度往後收，
     這樣最後一格落地時腳相對地面不動（推動角色時不會往前滑）。M 由「落地前一格」的位置反推。"""
@@ -556,33 +562,51 @@ def gait(N, S, YF, YB, lift, toe):
     s_last = 1 - DS
     M = (1 - K_ST * DS - (3 * s_last ** 2 - 2 * s_last ** 3)) / (2 * s_last ** 3 - 3 * s_last ** 2 + s_last)
 
+    heel = BALL_OF_FOOT * math.sin(push)                 # 蹬地結束時腳踝升高多少
+    pitchK = [(0.0, push), (0.3, toe), (1.0, -strike)]   # 擺動時腳尖下壓：蹬地 → 後踢時最大 → 落地前翹起
+
     def foot_cycle(ph, base):
         if ph < S:
-            return base + V((0, YF + (YB - YF) * (ph / S), 0)), 0.0
+            u = ph / S
+            a = -strike * (1 - ease(u / 0.3)) if u < 0.3 else push * ease((u - 0.55) / 0.45) if u > 0.55 else 0.0
+            return base + V((0, YF + (YB - YF) * u, BALL_OF_FOOT * math.sin(max(a, 0.0)))), a
         s = (ph - S) / (1 - S)
         h = 3 * s * s - 2 * s ** 3 + M * (2 * s ** 3 - 3 * s * s + s)
-        return base + V((0, YB + (YF - YB) * h, lift * math.sin(math.pi * s) ** 0.8)), toe * math.sin(math.pi * s)
+        z = lift * math.sin(math.pi * s ** kick) ** 0.8 + heel * (1 - ease(min(1.0, s / 0.5)))
+        a = smooth_pts(s, pitchK) if push or strike or kick != 1.0 else toe * math.sin(math.pi * s)
+        return base + V((0, YB + (YF - YB) * h, z)), a
 
     return foot_cycle, (YB - YF) / (S * N / FPS)
 
 
+SPRINT_N, SPRINT_S = 16, 0.30   # Sprint 一個循環的影格數、著地比例（著地 4.8 格 = 0.2 秒，其餘是騰空與擺腿）
+SPRINT_BOB = 0.03               # 身體上下起伏：著地中段最低、騰空時最高
+
+
+def sprint_gait():
+    """Sprint 的單腳循環（StopJump、Layup、Dunk 從 Sprint 第 0 格接起，共用同一組參數）。"""
+    return gait(SPRINT_N, SPRINT_S, -0.30, 0.30, lift=0.30, toe=0.80, kick=0.75, push=0.50, strike=0.12)
+
+
 def make_sprint(P):
-    """運球衝刺：12 格跑兩步、運球一次。原地循環，地面上的腳以固定速度往後移。"""
+    """運球衝刺：16 格跑兩步、運球一次。原地循環，地面上的腳以固定速度往後移。"""
     global SPRINT_SPEED
     P.new_action("Sprint")
     Z = P.Z
-    N, S, YF, YB = 12, 0.40, -0.30, 0.30                 # 影格數、著地比例、腳最前與最後的位置
+    N, S = SPRINT_N, SPRINT_S
 
-    foot_cycle, speed = gait(N, S, YF, YB, lift=0.20, toe=0.45)
+    foot_cycle, speed = sprint_gait()
 
     HZs = [(0.0, 0.97), (0.2, 0.86), (0.55, 1.00), (0.85, 1.00), (1.0, 0.97)]
-    T_PUSH, T_FLOOR = 0.2, 7 / 12                        # 落地放在整數影格（第 7 格）
+    T_PUSH, T_FLOOR = 0.2, 9 / 16                        # 落地放在整數影格（第 9 格）
+    bob = lambda t: math.cos(4 * math.pi * (t - S / 2))  # 著地中段為 1
 
     def pose_at(t):
         aR, rR = foot_cycle(t % 1.0, P.ankle_rest(".R") + V((0.02, 0, 0)))
         aL, rL = foot_cycle((t + 0.5) % 1.0, P.ankle_rest(".L") + V((-0.02, 0, 0)))
         swing = math.cos(2 * math.pi * t)
-        P.pose(f"R{t:.3f}", V((0, -0.04, -0.10 + 0.02 * math.sin(4 * math.pi * t))), (0.16, 0.08, 0.03), -0.12,
+        # 第 0 格的高度維持 -0.10（StopJump、Layup、Dunk 從這裡接起）
+        P.pose(f"R{t:.3f}", V((0, -0.04, -0.10 - SPRINT_BOB * (bob(t) - bob(0.0)))), (0.16, 0.08, 0.03), -0.12,
                V((-0.28, -0.40, smooth_pts(t, HZs))) + Z, V((0.26, -0.20 * swing, 1.00 - 0.05 * swing)) + Z,
                aR, aL, handR_dir=V((0, -1.0, -0.3)), poleL=V((0.3, 1.0, -0.3)), footR=rR, footL=rL, twist=0.06 * swing)
         P.palm_inward(".L")                              # 沒持球的手掌心朝身體
@@ -673,23 +697,39 @@ def make_dribble_walk(P):
         P.key(f + 1, V((BX, BY, zb)) + Z)
 
 
-def make_run(P, name, N, S, Y, lift, toe, hips_z, bob, lean, head, arm_y, arm_z):
-    """無球跑步（原地循環）：N 格跑兩步；S 著地比例；Y 腳前後最遠距離；bob 身體上下起伏；
-    arm_y、arm_z 手臂前後擺動幅度與擺到前方時抬高多少。球縮放為 0。"""
+def make_run(P, name, N, S, Y, lift, toe, kick, push, strike, hips_z, bob, lean, head, swing, elbow, twist):
+    """無球跑步（原地循環）：N 格跑兩步；S 著地比例；Y 腳前後最遠距離；lift、toe、kick、push、strike 見 gait；
+    bob 身體上下起伏；swing 是上臂往後、往前擺的弧度；elbow 是手在後、在前時手肘彎曲的弧度；
+    twist 是肩膀跟著手臂左右轉的弧度。球縮放為 0。
+    手臂以肩膀為圓心擺動、手肘保持彎曲（手腕位置由上臂角度和手肘角度算出），手從腰側擺到胸前；
+    直接讓手腕沿直線前後移動的話，手肘會忽彎忽直、往兩側張開。"""
     P.new_action(name)
     Z = P.Z
-    foot_cycle, speed = gait(N, S, -Y, Y, lift=lift, toe=toe)
+    foot_cycle, speed = gait(N, S, -Y, Y, lift=lift, toe=toe, kick=kick, push=push, strike=strike)
     MOVE_SPEEDS[name] = speed
+    UA, FA = P.blen["upper_arm.R"], P.blen["forearm.R"]
+
+    def wrist(sfx, u):                                    # u：0 手在最後面、1 在最前面
+        sh = P.pb["upper_arm" + sfx].head
+        a = swing[0] + (swing[1] - swing[0]) * u          # 上臂和垂直的夾角（正的往後）
+        b = a - (elbow[0] + (elbow[1] - elbow[0]) * u)    # 前臂的方向
+        p = sh + UA * V((0, math.sin(a), -math.cos(a))) + 0.98 * FA * V((0, math.sin(b), -math.cos(b)))
+        p.x -= sh.x * 0.30 * u                            # 擺到前面時手往身體中線靠
+        return p
+
     for f in range(N + 1):
         t = f / N
         aR, rR = foot_cycle(t % 1.0, P.ankle_rest(".R") + V((0.02, 0, 0)))
         aL, rL = foot_cycle((t + 0.5) % 1.0, P.ankle_rest(".L") + V((-0.02, 0, 0)))
-        c = math.cos(2 * math.pi * t)                     # 右腳在前（t=0）時右手在後
+        c = math.cos(2 * math.pi * (t + 0.1))             # 右腳擺到最前面（落地前）時右手在最後面、左手在最前面
         mid = math.cos(4 * math.pi * (t - S / 2))         # 著地中段身體最低
-        P.pose(f"{name}{f}", V((0, -0.03, hips_z - bob * mid)), lean, head,
-               V((-0.24, -0.06 + arm_y * c, 1.00 + arm_z * min(0.0, c))) + Z,
-               V((0.24, -0.06 - arm_y * c, 1.00 + arm_z * min(0.0, -c))) + Z,
-               aR, aL, poleR=V((-0.3, 1.0, -0.4)), poleL=V((0.3, 1.0, -0.4)), footR=rR, footL=rL, twist=0.05 * c)
+
+        def pose(wR, wL):
+            P.pose(f"{name}{f}", V((0, -0.03, hips_z - bob * mid)), lean, head, wR, wL, aR, aL,
+                   poleR=V((-0.25, 1.0, -0.3)), poleL=V((0.25, 1.0, -0.3)), footR=rR, footL=rL, twist=twist * c)
+
+        pose(V((-0.24, -0.06, 1.0)) + Z, V((0.24, -0.06, 1.0)) + Z)   # 先擺身體，才知道肩膀在哪
+        pose(wrist(".R", (1 - c) / 2), wrist(".L", (1 + c) / 2))
         P.palm_inward(".R")                              # 跑步時掌心朝身體
         P.palm_inward(".L")
         P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
@@ -706,7 +746,7 @@ def make_stop_jump(P):
     Z = P.Z
     v0 = SPRINT_SPEED                                    # 縮放前 3.0 m/s
     brake = v0 * (STOP_BRAKE - STOP_LAND) / FPS / 2      # 煞停期間身體前進（腳往後移）的距離
-    sprint_cycle, _ = gait(12, 0.40, -0.30, 0.30, lift=0.20, toe=0.45)
+    sprint_cycle, _ = sprint_gait()
     baseR = P.ankle_rest(".R") + V((0.02, 0, 0))
     baseL = P.ankle_rest(".L") + V((-0.02, 0, 0))
     aR0, rR0 = sprint_cycle(0.0, baseR)
@@ -975,7 +1015,7 @@ def make_layup(P):
     Z = P.Z
     v0, va = SPRINT_SPEED, LAY_AIR_SPEED
     brake = va * (L["BRAKE"] - L["LAND"]) / FPS / 2
-    cyc, _ = gait(12, 0.40, -0.30, 0.30, lift=0.20, toe=0.45)
+    cyc, _ = sprint_gait()
     baseR = P.ankle_rest(".R") + V((0.02, 0, 0))
     baseL = P.ankle_rest(".L") + V((-0.02, 0, 0))
     aR0, _ = cyc(0.0, baseR)
@@ -1594,7 +1634,7 @@ def make_dunk(P):
     Z = P.Z
     v0, va = SPRINT_SPEED, DUNK_AIR_SPEED
     brake = va * (D["BRAKE"] - D["LAND"]) / FPS / 2
-    cyc, _ = gait(12, 0.40, -0.30, 0.30, lift=0.20, toe=0.45)
+    cyc, _ = sprint_gait()
     baseR = P.ankle_rest(".R") + V((0.02, 0, 0))
     baseL = P.ankle_rest(".L") + V((-0.02, 0, 0))
     aR0, _ = cyc(0.0, baseR)
@@ -1879,10 +1919,13 @@ def build_all(rig, ball, off, scale):
     make_sprint(P)
     make_triple_threat(P)
     make_dribble_walk(P)
-    make_run(P, "Jog", N=16, S=0.40, Y=0.28, lift=0.12, toe=0.30, hips_z=-0.10, bob=0.02,
-             lean=(0.08, 0.04, 0.02), head=-0.07, arm_y=0.16, arm_z=-0.06)
-    make_run(P, "Run", N=12, S=0.34, Y=0.30, lift=0.24, toe=0.50, hips_z=-0.12, bob=0.025,
-             lean=(0.16, 0.07, 0.03), head=-0.15, arm_y=0.24, arm_z=-0.12)
+    make_run(P, "Jog", N=16, S=0.40, Y=0.28, lift=0.16, toe=0.55, kick=0.85, push=0.35, strike=0.10,
+             hips_z=-0.10, bob=0.022, lean=(0.08, 0.04, 0.02), head=-0.07,
+             swing=(0.45, -0.20), elbow=(1.35, 1.65), twist=0.07)
+    # Run 的著地時間（4.08 格）和步幅不變，所以推動速度不變；一個循環從 12 格拉長到 16 格，多出來的都是騰空
+    make_run(P, "Run", N=16, S=0.255, Y=0.30, lift=0.36, toe=0.90, kick=0.72, push=0.55, strike=0.12,
+             hips_z=-0.12, bob=0.035, lean=(0.18, 0.08, 0.04), head=-0.17,
+             swing=(0.80, -0.40), elbow=(1.30, 1.75), twist=0.11)
     make_stop_jump(P)
     make_set_shot(P)
     make_layup(P)
