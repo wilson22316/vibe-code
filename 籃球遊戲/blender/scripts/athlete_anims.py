@@ -723,11 +723,11 @@ def make_run(P, name, N, S, Y, lift, toe, kick, push, strike, hips_z, bob, lean,
     def wrist(sfx, u):                                    # u：0 手在最後面、1 在最前面
         sh = P.pb["upper_arm" + sfx].head
         a = swing[0] + (swing[1] - swing[0]) * u          # 上臂和垂直的夾角（正的往後）
-        # 手肘：往前擺時收緊（手到胸前），往後擺時很快打開（手經過腰側到臀部後方）。
-        # 線性變化的話，擺到中段時兩隻前臂會同時平舉在身體前面，像端著盤子
-        b = a - (elbow[0] + (elbow[1] - elbow[0]) * u ** 1.5)   # 前臂的方向
+        # 手肘全程維持大約 90 度（參考真人跑步）：往前擺時再收緊一點、拳頭到胸前，往後擺時拳頭在腰側。
+        # 往後擺時把手肘打開的話，擺到中段手臂幾乎垂直、拳頭掉到大腿前面
+        b = a - (elbow[0] + (elbow[1] - elbow[0]) * u)    # 前臂的方向
         p = sh + UA * V((0, math.sin(a), -math.cos(a))) + 0.98 * FA * V((0, math.sin(b), -math.cos(b)))
-        p.x += sh.x * (0.18 * (1 - u) - 0.32 * u)         # 往後時手離開身體一點（不貼著腰），往前時往身體中線靠
+        p.x += sh.x * (0.10 * (1 - u) - 0.32 * u)         # 往後時手離開身體一點（不貼著腰），往前時往身體中線靠
         return p
 
     for f in range(N + 1):
@@ -1935,11 +1935,11 @@ def build_all(rig, ball, off, scale):
     make_dribble_walk(P)
     make_run(P, "Jog", N=16, S=0.40, Y=0.28, lift=0.16, toe=0.55, kick=0.85, push=0.35, strike=0.10,
              hips_z=-0.10, bob=0.022, lean=(0.08, 0.04, 0.02), head=-0.07,
-             swing=(0.60, -0.25), elbow=(1.15, 1.65), twist=0.07)
+             swing=(0.65, -0.15), elbow=(1.55, 1.80), twist=0.07)
     # Run 的著地時間（4.08 格）和步幅不變，所以推動速度不變；一個循環從 12 格拉長到 16 格，多出來的都是騰空
     make_run(P, "Run", N=16, S=0.255, Y=0.30, lift=0.36, toe=0.90, kick=0.72, push=0.55, strike=0.12,
              hips_z=-0.12, bob=0.035, lean=(0.18, 0.08, 0.04), head=-0.17,
-             swing=(0.95, -0.45), elbow=(0.95, 1.75), twist=0.11)
+             swing=(0.95, -0.30), elbow=(1.55, 1.85), twist=0.11)
     make_stop_jump(P)
     make_set_shot(P)
     make_layup(P)
