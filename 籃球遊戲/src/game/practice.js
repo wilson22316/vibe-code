@@ -115,8 +115,11 @@ export const shotSideError = (grade) => THREE.MathUtils.degToRad(gauss() * SHOT_
 
 // onCharge({ power, ideal, perfect, good }) 蓄力中每格呼叫，放開時傳 null；
 // onShot(grade) 出手時呼叫（perfect、good、miss、late 太晚自動出手、layup、dunk）；
-// onResult({ made, message, shots, makes }) 每球判定後呼叫
-export function createPracticeControls({ onCharge = () => {}, onShot = () => {}, onResult = () => {} } = {}) {
+// onResult({ made, message, shots, makes, spot }) 每球判定後呼叫（spot：出手動作開始時角色的位置）；
+// rules：對戰模式（duel.js）加的規則，都可以不給——
+//   collide(position) 自由移動後修正角色位置（不能穿過對手）、laneOpen() 切入路線有沒有被擋住（擋住就不能上籃、灌籃）、
+//   contest(from) 出手時被干擾的程度（隨機誤差乘上這個倍數，1 是沒被干擾）
+export function createPracticeControls({ onCharge = () => {}, onShot = () => {}, onResult = () => {}, rules = {} } = {}) {
   let stage = null
   let character = null
   const physics = createBallPhysics(NIGHT_BASKET_Z)
@@ -178,16 +181,34 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     ball.getWorldScale(freeBall.scale)
     stage.scene.add(freeBall)
 
+    stage.camera.fov = CAMERA.fov
+    stage.camera.updateProjectionMatrix()
+    reset()
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+  }
+
+  // 回到開球位置、手上有球（一開始，以及對戰模式每次重新開球）
+  function reset() {
+    if (shot?.holding) onCharge(null)
+    mode = 'free'
+    shot = null
+    hasBall = true
+    speed = 0
+    freeBall.visible = false
     character.position.copy(START)
     character.rotation.y = Math.PI // 面向籃框（-Z）
     cameraYaw = yawToAim()
     placeCamera(1)
-    stage.camera.fov = CAMERA.fov
-    stage.camera.updateProjectionMatrix()
+    clip = null
     setClip(CLIPS.stand, 0)
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
-    window.addEventListener('blur', onBlur)
+  }
+
+  // 場上的球被別人撿走了（對戰模式的對手搶到籃板）。投籃動作做完（state().shooting 是 null）之後才能呼叫
+  function takeBall() {
+    freeBall.visible = false
+    shot = null
   }
 
   function stop() {
@@ -256,6 +277,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     speed += (target - speed) * Math.min(1, delta / SPEED_EASE)
     const a = character.rotation.y
     moveBy(Math.sin(a) * speed * delta, Math.cos(a) * speed * delta)
+    rules.collide?.(character.position)
   }
 
   // 移動角色，並留在半場內
@@ -295,6 +317,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     character.rotation.y = facingRim()
     shot = {
       kind: 'jump',
+      spot: character.position.clone(),
       holding: true,
       grade: null,
       ratio: 1,
@@ -347,7 +370,8 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     const p = character.position
     const dist = Math.hypot(physics.rim.x - p.x, physics.rim.z - p.z)
     const off = Math.abs(wrapAngle(facingRim() - character.rotation.y))
-    return speed > MOVING_SPEED && dist <= DRIVE_RANGE && off <= THREE.MathUtils.degToRad(DRIVE_ANGLE)
+    if (speed <= MOVING_SPEED || dist > DRIVE_RANGE || off > THREE.MathUtils.degToRad(DRIVE_ANGLE)) return false
+    return rules.laneOpen?.() ?? true
   }
 
   // 從現在的位置做上籃或灌籃的路線：出手那一格球要剛好在籃框前方 reach 的地方。
@@ -394,7 +418,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     shotTime = plan.start
     character.rotation.y = plan.heading
     onShot(name === 'Dunk' ? 'dunk' : 'layup')
-    shot = { kind: name, air: plan.air, ball: null, from: null, judged: false, judgedAt: 0 }
+    shot = { kind: name, spot: character.position.clone(), air: plan.air, ball: null, from: null, judged: false, judgedAt: 0 }
     speed = 0
     setClip(name, DRIVE_FADE, plan.start)
   }
@@ -416,8 +440,9 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     } else {
       const angle = shotAngle(from)
       v = physics.bankShotVelocity(from) ?? physics.launchVelocity(from, angle, physics.idealSpeed(from, angle) ?? SHOT_SPEED_MIN)
-      v.multiplyScalar(1 + gauss() * LAYUP_ERROR.speed)
-      v.applyAxisAngle(THREE.Object3D.DEFAULT_UP, THREE.MathUtils.degToRad(gauss() * LAYUP_ERROR.side))
+      const contest = rules.contest?.(from) ?? 1
+      v.multiplyScalar(1 + gauss() * LAYUP_ERROR.speed * contest)
+      v.applyAxisAngle(THREE.Object3D.DEFAULT_UP, THREE.MathUtils.degToRad(gauss() * LAYUP_ERROR.side * contest))
     }
     launchBall(from, v)
     if (shot.kind === 'Dunk') shot.ball.scored = true
@@ -427,8 +452,9 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     const from = releasePoint()
     const angle = shotAngle(from)
     const ideal = physics.idealSpeed(from, angle)
-    const v = physics.launchVelocity(from, angle, (ideal ?? SHOT_SPEED_MAX) * shot.ratio)
-    v.applyAxisAngle(THREE.Object3D.DEFAULT_UP, shot.side)
+    const contest = rules.contest?.(from) ?? 1
+    const v = physics.launchVelocity(from, angle, (ideal ?? SHOT_SPEED_MAX) * (1 + (shot.ratio - 1) * contest))
+    v.applyAxisAngle(THREE.Object3D.DEFAULT_UP, shot.side * contest)
     launchBall(from, v)
   }
 
@@ -451,7 +477,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     if (shot.kind === 'Dunk') message = '灌籃！'
     else if (shot.kind === 'Layup') message = b.scored ? '上籃進球！' : '上籃沒進'
     else message = b.scored ? (b.touchedRim || b.touchedBoard ? '進球！' : '空心進球！') : physics.missReason(b, shot.from)
-    onResult({ made: b.scored, message, shots, makes })
+    onResult({ made: b.scored, message, shots, makes, spot: shot.spot })
   }
 
   function updateShot(delta) {
@@ -508,6 +534,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
 
   // 判定完、球夠低又在角色腳邊就撿起來，接著運球
   function tryPickup() {
+    if (!shot) return // 球被對手撿走了
     const b = shot.ball
     const p = character.position
     if (!shot.judged || b.p.y > PICKUP_HEIGHT || Math.hypot(b.p.x - p.x, b.p.z - p.z) > PICKUP_RADIUS) return
@@ -547,5 +574,20 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     placeCamera(k)
   }
 
-  return { start, stop, update }
+  return {
+    start,
+    stop,
+    update,
+    reset,
+    takeBall,
+    rim: physics.rim,
+    // 對戰模式的對手要看的狀態：shooting 是投籃動作的種類（jump、Layup、Dunk；沒在投是 null）、
+    // ball 是離手後場上的球（position、velocity、judged 判定過了沒；沒有是 null）
+    state: () => ({
+      position: character.position,
+      hasBall,
+      shooting: mode === 'shoot' ? shot.kind : null,
+      ball: shot?.ball ? { position: shot.ball.p, velocity: shot.ball.v, judged: shot.judged } : null,
+    }),
+  }
 }

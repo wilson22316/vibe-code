@@ -1,10 +1,13 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { createGallery } from '../gallery/scene.js'
-import { loadColors } from '../menu/teamColors.js'
+import { KITS, loadColors } from '../menu/teamColors.js'
+import { WIN_SCORE, createDuel } from './duel.js'
 import { createPracticeControls } from './practice.js'
 
 // 練習模式：夜晚半場，方向鍵移動、按住 A 衝刺、按下空白鍵起跳、按住加力道、放開出手（見 practice.js）。Esc 暫停。
+// mode 是 'duel' 時是 1 對 1：操控相同，場上多一個只防守的對手，改成計分（見 duel.js）。
+const props = defineProps({ mode: { type: String, default: 'practice' } })
 const emit = defineEmits(['exit'])
 
 const stage = ref(null)
@@ -18,7 +21,27 @@ let toastTimer = 0
 let gradeTimer = 0
 let court = null
 const GRADE_LABELS = { perfect: 'PERFECT', good: 'GOOD', miss: 'MISS', late: 'LATE', layup: 'LAYUP', dunk: 'DUNK!' }
+
+function showToast(message, made) {
+  toast.value = { message, made }
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => (toast.value = null), 1800)
+}
+
+// 1 對 1：分數、第幾次進攻、贏了沒
+const match = ref({ score: 0, possession: 1 })
+const won = ref(false)
+const duel =
+  props.mode === 'duel'
+    ? createDuel({
+        onScore: (value) => (match.value = value),
+        onStop: () => showToast('對手搶到籃板，重新開球', false),
+        onWin: () => (won.value = true),
+      })
+    : null
+
 const controls = createPracticeControls({
+  rules: duel?.rules,
   onCharge(value) {
     charge.value = value
   },
@@ -27,13 +50,23 @@ const controls = createPracticeControls({
     clearTimeout(gradeTimer)
     gradeTimer = setTimeout(() => (grade.value = null), 1200)
   },
-  onResult({ made, message, shots, makes }) {
+  onResult(result) {
+    const { made, message, shots, makes } = result
     stats.value = { shots, makes }
-    toast.value = { message, made }
-    clearTimeout(toastTimer)
-    toastTimer = setTimeout(() => (toast.value = null), 1800)
+    const points = duel?.result(result)
+    showToast(points ? `${message} +${points}` : message, made)
   },
 })
+
+// 對手的球衣：和玩家不同的一套（同主畫面的客隊配色）
+function foeColors() {
+  return loadColors().shirt === KITS[4].shirt ? KITS[1] : KITS[4]
+}
+
+function playAgain() {
+  won.value = false
+  duel.restart()
+}
 
 const percent = (x) => `${(x * 100).toFixed(1)}%`
 // 判定區（以理想力道為中心、左右各 half 寬）在蓄力條上的位置
@@ -53,13 +86,17 @@ onMounted(() => {
     interactive: false,
     setting: 'night-court',
     clip: 'Dribble',
-    onFrame: (delta) => controls.update(delta, paused.value),
+    onFrame: (delta) => {
+      controls.update(delta, paused.value)
+      duel?.update(delta, paused.value)
+    },
   })
   court.setTeamColors(loadColors())
   court.ready.then(
     () => {
       status.value = ''
       controls.start(court)
+      duel?.start(court, controls, foeColors())
     },
     (err) => {
       status.value = `模型載入失敗：${err.message ?? err}`
@@ -82,7 +119,11 @@ onBeforeUnmount(() => {
   <div ref="stage" class="stage"></div>
   <p v-if="status" class="status">{{ status }}</p>
 
-  <div class="stats">
+  <div v-if="duel" class="stats">
+    <span>得分 <b>{{ match.score }}</b> / {{ WIN_SCORE }}</span>
+    <span>第 <b>{{ match.possession }}</b> 次進攻</span>
+  </div>
+  <div v-else class="stats">
     <span>投籃 <b>{{ stats.shots }}</b></span>
     <span>命中 <b>{{ stats.makes }}</b></span>
     <span>命中率 <b>{{ stats.shots ? `${Math.round((stats.makes / stats.shots) * 100)}%` : '—' }}</b></span>
@@ -107,10 +148,18 @@ onBeforeUnmount(() => {
     <span><kbd>Esc</kbd> 暫停</span>
   </div>
 
-  <div v-if="paused" class="pause">
+  <div v-if="won" class="pause">
+    <section class="panel">
+      <h2>獲勝！</h2>
+      <p class="summary">{{ match.score }} 分，用了 {{ match.possession }} 次進攻</p>
+      <button type="button" class="item" @click="playAgain">再來一場</button>
+      <button type="button" class="item" @click="emit('exit')">回主畫面</button>
+    </section>
+  </div>
+  <div v-else-if="paused" class="pause">
     <section class="panel">
       <h2>暫停</h2>
-      <button type="button" class="item" @click="setPaused(false)">繼續練習</button>
+      <button type="button" class="item" @click="setPaused(false)">{{ duel ? '繼續比賽' : '繼續練習' }}</button>
       <button type="button" class="item" @click="emit('exit')">回主畫面</button>
     </section>
   </div>
@@ -259,6 +308,11 @@ kbd {
 h2 {
   margin: 0 0 6px;
   font-size: 20px;
+}
+
+.summary {
+  margin: 0 0 6px;
+  font-size: 15px;
 }
 
 .item {

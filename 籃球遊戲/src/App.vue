@@ -6,12 +6,12 @@ import MenuView from './menu/MenuView.vue'
 
 // 動作展示館是開發工具，主選單不顯示：網址加 ?gallery 才進得去
 const isGallery = new URLSearchParams(window.location.search).has('gallery')
-const view = ref('menu') // menu | practice
+const view = ref('menu') // menu | practice | duel（1 對 1，和練習模式共用畫面）
 </script>
 
 <template>
   <GalleryView v-if="isGallery" />
-  <PracticeView v-else-if="view === 'practice'" @exit="view = 'menu'" />
+  <PracticeView v-else-if="view !== 'menu'" :key="view" :mode="view" @exit="view = 'menu'" />
   <MenuView v-else @start="view = $event" />
 </template>
 

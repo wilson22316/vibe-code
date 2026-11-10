@@ -23,7 +23,7 @@ const MAIN_ITEMS = [
   { label: '操作說明', to: 'controls' },
 ]
 const MODES = [
-  { label: '1 對 1', note: '半場', soon: true },
+  { label: '1 對 1', note: '半場', play: 'duel' },
   { label: '3 對 3', note: '半場', soon: true },
   { label: '5 對 5', note: '全場', soon: true },
 ]
@@ -172,7 +172,7 @@ onBeforeUnmount(() => {
     <section v-else-if="screen === 'modes'" class="panel">
       <h2>選擇模式</h2>
       <div class="items">
-        <button v-for="mode in MODES" :key="mode.label" type="button" class="item" :disabled="mode.soon">
+        <button v-for="mode in MODES" :key="mode.label" type="button" class="item" :disabled="mode.soon" @click="open(mode)">
           {{ mode.label }}
           <small>{{ mode.note }}</small>
           <span v-if="mode.soon" class="soon">即將推出</span>

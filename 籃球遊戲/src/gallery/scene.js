@@ -2,6 +2,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
 import { NIGHT_GROUND, createFloodlights, createGrass, createNightSky, createSky } from './backdrop.js'
 import { createCourt } from '../game/court.js'
 
@@ -288,15 +289,71 @@ export function createGallery(
   // timeScale 是這個動作自己的播放速度倍數（遊戲調快衝刺時，動作跟著加快腳才不會打滑）
   // startAt：從第幾秒開始播（移動中投籃時跳過前面的收球站穩）
   function play(name, fade = FADE_SECONDS, timeScale = 1, startAt = 0) {
-    const next = actions[name]
+    current = switchAction(actions, current, name, fade, timeScale, startAt)
+  }
+
+  function switchAction(all, from, name, fade, timeScale, startAt) {
+    const next = all[name]
     if (!next) throw new Error(`模型裡找不到 ${name} 動作`)
     next.reset().setEffectiveTimeScale(timeScale).setEffectiveWeight(1).play()
     next.time = startAt
-    if (current && current !== next) {
-      if (fade > 0) next.crossFadeFrom(current, fade, false)
-      else current.stop()
+    if (from && from !== next) {
+      if (fade > 0) next.crossFadeFrom(from, fade, false)
+      else from.stop()
     }
-    current = next
+    return next
+  }
+
+  // 單次動作播完停在最後一格（見 CLAUDE.md 動作規格表）
+  function createActions(target, clips) {
+    const all = {}
+    for (const clip of clips) {
+      const action = target.clipAction(clip)
+      if (ONCE_CLIPS.has(clip.name)) {
+        action.setLoop(THREE.LoopOnce, 1)
+        action.clampWhenFinished = true
+      }
+      all[clip.name] = action
+    }
+    return all
+  }
+
+  // 再加一個角色（對戰模式的對手）：複製已載入的模型，有自己的動作播放和球衣配色（colors 同 setTeamColors）。
+  // 動作裡的球不顯示。模型載入後（ready 之後）才能呼叫。
+  // 回傳 { root, play(name, fade, timeScale, startAt), setTimeScale(scale), actionTime() }；timeScale 是負的就倒著播
+  const extras = []
+  let clips = null
+
+  function addCharacter(colors = null) {
+    const root = cloneSkinned(character)
+    root.position.set(0, 0, 0)
+    root.rotation.set(0, 0, 0)
+    root.getObjectByName(BALL_NODE).visible = false
+    const recolored = new Map()
+    root.traverse((o) => {
+      if (!o.isMesh) return
+      const part = Object.keys(TEAM_MATERIALS).find((k) => o.material.name.startsWith(TEAM_MATERIALS[k]))
+      if (!part || !colors?.[part]) return
+      if (!recolored.has(o.material)) {
+        const material = o.material.clone()
+        material.color.set(colors[part])
+        recolored.set(o.material, material)
+      }
+      o.material = recolored.get(o.material)
+    })
+    scene.add(root)
+    const extra = { mixer: new THREE.AnimationMixer(root), current: null }
+    extra.mixer.timeScale = mixer.timeScale
+    const all = createActions(extra.mixer, clips)
+    extras.push(extra)
+    return {
+      root,
+      play(name, fade = FADE_SECONDS, timeScale = 1, startAt = 0) {
+        extra.current = switchAction(all, extra.current, name, fade, timeScale, startAt)
+      },
+      setTimeScale: (scale) => extra.current?.setEffectiveTimeScale(scale),
+      actionTime: () => extra.current?.time ?? 0,
+    }
   }
 
   // 動作 name 第 time 秒時，球心在角色座標裡的位置（角色在原點、面向 +Z）。播放中的動作會停掉，之後要重新 play
@@ -316,6 +373,7 @@ export function createGallery(
   // 播放速度倍數，作用在整個 mixer，切換動作後仍維持
   function setSpeed(speed) {
     if (mixer) mixer.timeScale = speed
+    for (const extra of extras) extra.mixer.timeScale = speed
   }
 
   function setSkeletonVisible(visible) {
@@ -365,16 +423,9 @@ export function createGallery(
     startClipsAtZero(gltf.animations)
     ball = root.getObjectByName(BALL_NODE)
     ball.scale.setScalar(1)
-    for (const clip of gltf.animations) {
-      takeBallScaleTrack(clip)
-      const action = mixer.clipAction(clip)
-      // 單次動作播完停在最後一格（見 CLAUDE.md 動作規格表）
-      if (ONCE_CLIPS.has(clip.name)) {
-        action.setLoop(THREE.LoopOnce, 1)
-        action.clampWhenFinished = true
-      }
-      actions[clip.name] = action
-    }
+    clips = gltf.animations
+    for (const clip of clips) takeBallScaleTrack(clip)
+    Object.assign(actions, createActions(mixer, clips))
     if (teamColors) setTeamColors(teamColors)
     play(clip)
 
@@ -385,6 +436,7 @@ export function createGallery(
     timer.update(time)
     const delta = timer.getDelta()
     mixer?.update(delta)
+    for (const extra of extras) extra.mixer.update(delta)
     updateBallVisibility()
     if (onFrame) {
       if (character) onFrame(delta)
@@ -404,6 +456,7 @@ export function createGallery(
     setGridVisible,
     setMovePush,
     setTeamColors,
+    addCharacter,
     sampleBall,
     camera,
     actionTime: () => current?.time ?? 0,
