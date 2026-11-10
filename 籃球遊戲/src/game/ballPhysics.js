@@ -10,6 +10,8 @@ const STEP = 1 / 240
 const RIM_BOUNCE = 0.55
 const BOARD_BOUNCE = 0.6
 const FLOOR_BOUNCE = 0.72
+const SETTLE_SPEED = 0.5 // 落地時往下的速度小於這個值就不再彈，改成在地上滾
+const ROLL_DRAG = 0.8 // 在地上滾的減速（每秒速度乘 e^-ROLL_DRAG）
 const NET_DEPTH = 0.4
 const SCORE_MARGIN = 0.035 // 球心往下穿過籃框高度時，水平距離小於「籃框半徑 − 這個值」才算進
 
@@ -84,15 +86,20 @@ export function createBallPhysics(basketZ) {
         b.touchedRim = true
       }
     }
-    // 地板
+    // 地板：落地反彈時水平速度減一些；彈不起來之後就在地上滾，慢慢停下
     if (b.p.y < BALL_RADIUS) {
       b.p.y = BALL_RADIUS
-      if (b.v.y < 0) {
+      if (b.v.y < -SETTLE_SPEED) {
         b.v.y *= -FLOOR_BOUNCE
+        b.v.x *= 0.9
+        b.v.z *= 0.9
         b.bounces++
+      } else {
+        b.v.y = 0
+        const k = Math.exp(-ROLL_DRAG * dt)
+        b.v.x *= k
+        b.v.z *= k
       }
-      b.v.x *= 0.9
-      b.v.z *= 0.9
     }
     // 進球判定：球心往下穿過籃框高度
     if (!b.crossed && prevY >= rim.y && b.p.y < rim.y) {
@@ -124,9 +131,43 @@ export function createBallPhysics(basketZ) {
     return dir.multiplyScalar(Math.cos(angle) * speed).setY(Math.sin(angle) * speed)
   }
 
+  // 上籃打板：找一個先打到籃板、再落進籃框的出手速度，找不到就回傳 null。
+  // 打板點的左右位置照反彈算（籃板反彈時 z 方向速度乘 BOARD_BOUNCE、x 方向乘 0.9），
+  // 高度和飛行時間逐一試算，挑球心最靠近籃框中心、沒碰到籃框的那一組。
+  function bankShotVelocity(from) {
+    const front = boardZ + BALL_RADIUS // 球碰到籃板時球心的 z
+    const a = from.z - front
+    const b = rim.z - front
+    if (a < 0.2) return null
+    const k = (0.9 / BOARD_BOUNCE) * (b / a)
+    const tx = (rim.x + k * from.x) / (1 + k)
+    const target = new THREE.Vector3()
+    const v = new THREE.Vector3()
+    let best = null
+    let bestScore = Infinity
+    for (let ty = rim.y + 0.1; ty <= rim.y + 0.7; ty += 0.05) {
+      for (let t = 0.25; t <= 0.9; t += 0.05) {
+        target.set(tx, ty, front)
+        v.subVectors(target, from).divideScalar(t)
+        v.y += (GRAVITY * t) / 2
+        const ball = launch(from, v)
+        while (!(ball.crossed && ball.p.y < rim.y - 0.3) && ball.age < 2) update(ball, 1 / 60)
+        if (!ball.scored) continue
+        const score = Math.hypot(ball.crossed.x - rim.x, ball.crossed.z - rim.z) + (ball.touchedRim ? 1 : 0) + (ball.touchedBoard ? 0 : 0.5)
+        if (score < bestScore) {
+          bestScore = score
+          best = v.clone()
+        }
+      }
+    }
+    return best
+  }
+
   // 沒進時的原因（從出手方向看太短或太長）
   function missReason(b, from) {
     const dir = new THREE.Vector3(rim.x - from.x, 0, rim.z - from.z).normalize()
+    // 力道太大打到籃板彈回來的球，會在籃框前面落下，不能算太短
+    if (b.crossed && b.touchedBoard) return b.touchedRim ? '打板、打框沒進' : '打板沒進'
     if (b.crossed) {
       const along = (b.crossed.x - rim.x) * dir.x + (b.crossed.z - rim.z) * dir.z
       return (b.touchedRim ? '打框沒進：' : '') + (along < 0 ? '太短了' : '太長了')
@@ -135,5 +176,5 @@ export function createBallPhysics(basketZ) {
     return '太短了，沒碰到籃框'
   }
 
-  return { rim, launch, update, idealSpeed, launchVelocity, missReason }
+  return { rim, launch, update, idealSpeed, launchVelocity, bankShotVelocity, missReason }
 }
