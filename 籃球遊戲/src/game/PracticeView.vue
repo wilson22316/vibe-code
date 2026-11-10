@@ -6,7 +6,7 @@ import { WIN_SCORE, createDuel } from './duel.js'
 import { createPracticeControls } from './practice.js'
 
 // 練習模式：夜晚半場，方向鍵移動、按住 A 衝刺、按下空白鍵起跳、按住加力道、放開出手（見 practice.js）。Esc 暫停。
-// mode 是 'duel' 時是 1 對 1：操控相同，場上多一個只防守的對手，改成計分（見 duel.js）。
+// mode 是 'duel' 時是 1 對 1：操控相同，場上多一個 AI 對手，輪流進攻、計分（見 duel.js）。
 const props = defineProps({ mode: { type: String, default: 'practice' } })
 const emit = defineEmits(['exit'])
 
@@ -29,14 +29,14 @@ function showToast(message, made) {
 }
 
 // 1 對 1：分數、第幾次進攻、贏了沒
-const match = ref({ score: 0, possession: 1 })
-const won = ref(false)
+const match = ref({ you: 0, foe: 0, offense: 'you' })
+const winner = ref(null) // 'you' 或 'foe'
 const duel =
   props.mode === 'duel'
     ? createDuel({
         onScore: (value) => (match.value = value),
-        onStop: () => showToast('對手搶到籃板，重新開球', false),
-        onWin: () => (won.value = true),
+        onMessage: (message) => showToast(message, false),
+        onEnd: (who) => (winner.value = who),
       })
     : null
 
@@ -64,7 +64,7 @@ function foeColors() {
 }
 
 function playAgain() {
-  won.value = false
+  winner.value = null
   duel.restart()
 }
 
@@ -120,8 +120,9 @@ onBeforeUnmount(() => {
   <p v-if="status" class="status">{{ status }}</p>
 
   <div v-if="duel" class="stats">
-    <span>得分 <b>{{ match.score }}</b> / {{ WIN_SCORE }}</span>
-    <span>第 <b>{{ match.possession }}</b> 次進攻</span>
+    <span>你 <b>{{ match.you }}</b> : <b>{{ match.foe }}</b> 對手</span>
+    <span>先得 {{ WIN_SCORE }} 分</span>
+    <span>{{ match.offense === 'you' ? '你進攻' : '你防守' }}</span>
   </div>
   <div v-else class="stats">
     <span>投籃 <b>{{ stats.shots }}</b></span>
@@ -143,15 +144,16 @@ onBeforeUnmount(() => {
 
   <div class="hint" aria-hidden="true">
     <span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移動</span>
-    <span><kbd>A</kbd> 衝刺（按住）</span>
-    <span><kbd>空白鍵</kbd> 按下起跳、按住加力道、放開出手（衝向籃框時上籃，加 <kbd>A</kbd> 灌籃）</span>
+    <span><kbd>A</kbd> 突破（加方向鍵）</span>
+    <span><kbd>空白鍵</kbd> 按下起跳、按住加力道、放開出手（衝向籃框時上籃或灌籃）；沒球時跳起來搶籃板<template v-if="duel">、封蓋</template></span>
+    <span v-if="duel"><kbd>D</kbd> 抄球（防守時）</span>
     <span><kbd>Esc</kbd> 暫停</span>
   </div>
 
-  <div v-if="won" class="pause">
+  <div v-if="winner" class="pause">
     <section class="panel">
-      <h2>獲勝！</h2>
-      <p class="summary">{{ match.score }} 分，用了 {{ match.possession }} 次進攻</p>
+      <h2>{{ winner === 'you' ? '獲勝！' : '落敗…' }}</h2>
+      <p class="summary">你 {{ match.you }} : {{ match.foe }} 對手</p>
       <button type="button" class="item" @click="playAgain">再來一場</button>
       <button type="button" class="item" @click="emit('exit')">回主畫面</button>
     </section>
