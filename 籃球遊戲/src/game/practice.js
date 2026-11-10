@@ -18,11 +18,11 @@ const SHOT_ANGLE_NEAR = 62
 const SHOT_ANGLE_FAR = 52
 const SHOT_SPEED_MIN = 4
 const SHOT_SPEED_MAX = 13
-const CHARGE_SECONDS = 0.8
+const CHARGE_SECONDS = 1
 // 蓄力條的判定區：以理想力道為中心，往左右各多寬（蓄力條全長是 1）。
 // 能放開的時間是「寬度 × CHARGE_SECONDS」：PERFECT 0.05 約 ±40 毫秒、GOOD 0.15 約 ±120 毫秒
-const PERFECT_ZONE = 0.05
-const GOOD_ZONE = 0.15
+const PERFECT_ZONE = 0.1
+const GOOD_ZONE = 0.3
 // 出手的隨機誤差（標準差）：speed 是出手速度的比例、side 是左右偏差（度）。
 // 越小越容易進；miss 是放在判定區外，速度還會照力道條的位置偏多或偏少
 const SHOT_ERROR = {
