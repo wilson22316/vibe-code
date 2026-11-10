@@ -21,6 +21,8 @@ SHOOT_END = 36           # Shoot 最後一格（回到運球站姿）
 CONTACT_GAP = -0.003     # 球貼在手上時，手指微微壓進球皮的深度（匯出縮放後的公尺）
 PALM_T = 0.016           # 掌心到手骨中線的厚度（縮放前），用來從球的位置推回手腕
 PALM_A = 0.075           # 掌心中央離手腕的距離（縮放前）
+FIST_CURL = -1.2          # 跑步時四指往掌心彎的弧度（見 Poser.loose_fist）
+FIST_THUMB = -0.4         # 拇指靠向食指的弧度
 TWIST_SHARE = 0.5        # 手的扭轉有多少比例改由前臂承擔（見 Poser.distribute_twist）
 WRIST_MAX_BEND = 75      # 手腕最多彎幾度（見 Poser.limit_wrist）
 LEFT_RELAX = 5           # 投籃出手後，扶球的左手幾格內放鬆回直
@@ -109,6 +111,13 @@ class Poser:
         """沒持球的手：手指順著前臂、掌心朝身體（拇指朝上）。不轉的話會維持靜止姿勢的掌心朝下。"""
         inward = V((1, 0, 0)) if sfx == ".R" else V((-1, 0, 0))
         self.palm("hand" + sfx, self.pb["forearm" + sfx].matrix.col[1].to_3d(), inward, w)
+
+    def loose_fist(self, sfx, curl=FIST_CURL, thumb=FIST_THUMB):
+        """跑步時手微握：四指往掌心彎、拇指靠向食指。手指只有一根骨頭，握不成真的拳頭，
+        但比五指張開伸直（像手刀）自然。要在 pose 之後呼叫（pose 會把骨頭歸零）。"""
+        self.pb["fingers" + sfx].rotation_quaternion = Quaternion((1, 0, 0), curl)
+        self.pb["thumb" + sfx].rotation_quaternion = Quaternion((1, 0, 0), thumb)
+        self._upd()
 
     def palm(self, name, direction, toward, w=1.0):
         """把手轉成手指朝 direction、掌心（手骨 -Z 軸）朝 toward；w 是和目前方向的混合比例。"""
@@ -699,7 +708,7 @@ def make_dribble_walk(P):
 
 def make_run(P, name, N, S, Y, lift, toe, kick, push, strike, hips_z, bob, lean, head, swing, elbow, twist):
     """無球跑步（原地循環）：N 格跑兩步；S 著地比例；Y 腳前後最遠距離；lift、toe、kick、push、strike 見 gait；
-    bob 身體上下起伏；swing 是上臂往後、往前擺的弧度；elbow 是手在後、在前時手肘彎曲的弧度；
+    bob 身體上下起伏；swing 是上臂往後、往前擺的弧度；elbow 是手在後、在前時手肘彎曲的弧度（0 是打直）；
     twist 是肩膀跟著手臂左右轉的弧度。球縮放為 0。
     手臂以肩膀為圓心擺動、手肘保持彎曲（手腕位置由上臂角度和手肘角度算出），手從腰側擺到胸前；
     直接讓手腕沿直線前後移動的話，手肘會忽彎忽直、往兩側張開。"""
@@ -712,9 +721,11 @@ def make_run(P, name, N, S, Y, lift, toe, kick, push, strike, hips_z, bob, lean,
     def wrist(sfx, u):                                    # u：0 手在最後面、1 在最前面
         sh = P.pb["upper_arm" + sfx].head
         a = swing[0] + (swing[1] - swing[0]) * u          # 上臂和垂直的夾角（正的往後）
-        b = a - (elbow[0] + (elbow[1] - elbow[0]) * u)    # 前臂的方向
+        # 手肘：往前擺時收緊（手到胸前），往後擺時很快打開（手經過腰側到臀部後方）。
+        # 線性變化的話，擺到中段時兩隻前臂會同時平舉在身體前面，像端著盤子
+        b = a - (elbow[0] + (elbow[1] - elbow[0]) * u ** 1.5)   # 前臂的方向
         p = sh + UA * V((0, math.sin(a), -math.cos(a))) + 0.98 * FA * V((0, math.sin(b), -math.cos(b)))
-        p.x -= sh.x * 0.30 * u                            # 擺到前面時手往身體中線靠
+        p.x += sh.x * (0.18 * (1 - u) - 0.32 * u)         # 往後時手離開身體一點（不貼著腰），往前時往身體中線靠
         return p
 
     for f in range(N + 1):
@@ -730,8 +741,9 @@ def make_run(P, name, N, S, Y, lift, toe, kick, push, strike, hips_z, bob, lean,
 
         pose(V((-0.24, -0.06, 1.0)) + Z, V((0.24, -0.06, 1.0)) + Z)   # 先擺身體，才知道肩膀在哪
         pose(wrist(".R", (1 - c) / 2), wrist(".L", (1 + c) / 2))
-        P.palm_inward(".R")                              # 跑步時掌心朝身體
-        P.palm_inward(".L")
+        for sfx in (".R", ".L"):
+            P.palm_inward(sfx)                           # 跑步時掌心朝身體
+            P.loose_fist(sfx)                            # 手微握
         P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
 
 
@@ -1921,11 +1933,11 @@ def build_all(rig, ball, off, scale):
     make_dribble_walk(P)
     make_run(P, "Jog", N=16, S=0.40, Y=0.28, lift=0.16, toe=0.55, kick=0.85, push=0.35, strike=0.10,
              hips_z=-0.10, bob=0.022, lean=(0.08, 0.04, 0.02), head=-0.07,
-             swing=(0.45, -0.20), elbow=(1.35, 1.65), twist=0.07)
+             swing=(0.60, -0.25), elbow=(1.15, 1.65), twist=0.07)
     # Run 的著地時間（4.08 格）和步幅不變，所以推動速度不變；一個循環從 12 格拉長到 16 格，多出來的都是騰空
     make_run(P, "Run", N=16, S=0.255, Y=0.30, lift=0.36, toe=0.90, kick=0.72, push=0.55, strike=0.12,
              hips_z=-0.12, bob=0.035, lean=(0.18, 0.08, 0.04), head=-0.17,
-             swing=(0.80, -0.40), elbow=(1.30, 1.75), twist=0.11)
+             swing=(0.95, -0.45), elbow=(0.95, 1.75), twist=0.11)
     make_stop_jump(P)
     make_set_shot(P)
     make_layup(P)
