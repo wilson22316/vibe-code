@@ -455,12 +455,12 @@ for _s, _x in ((1, ".L"), (-1, ".R")):
         ("shoulder" + _x, (0.03 * _s, 0, 1.45), (0.19 * _s, 0, 1.42), "chest", False),
         ("upper_arm" + _x, (0.19 * _s, 0, 1.42), (0.52 * _s, 0.012, 1.42), "shoulder" + _x, True),
         ("forearm" + _x, (0.52 * _s, 0.012, 1.42), (0.775 * _s, 0, 1.42), "upper_arm" + _x, True),
-        ("hand" + _x, (WRIST_X * _s, 0, 1.42), _hand(0.83, 0, 1.42, _s), "forearm" + _x, True),
-        # 四指分兩節才握得成拳頭：fingers 到第一個指節（_FINGERS 的第一段結束處），fingers2 到指尖。
+        ("hand" + _x, (WRIST_X * _s, 0, 1.42), _hand(0.872, 0, 1.42, _s), "forearm" + _x, True),
+        # 四指分兩節才握得成拳頭：fingers 從指根（0.872）到第一個指節（_FINGERS 的第一段結束處），fingers2 到指尖。
         # 兩根骨頭在同一條線上，fingers2 不轉時和原本只有一根 fingers 的形狀相同
-        ("fingers" + _x, _hand(0.83, 0, 1.42, _s), _hand(0.908, -0.003, 1.42, _s), "hand" + _x, True),
-        ("fingers2" + _x, _hand(0.908, -0.003, 1.42, _s), _hand(0.956, -0.005, 1.42, _s), "fingers" + _x, True),
-        ("thumb" + _x, _hand(0.810, -0.030, 1.414, _s), _hand(0.882, -0.050, 1.408, _s), "hand" + _x, False),
+        ("fingers" + _x, _hand(0.872, 0, 1.42, _s), _hand(0.906, -0.003, 1.42, _s), "hand" + _x, True),
+        ("fingers2" + _x, _hand(0.906, -0.003, 1.42, _s), _hand(0.950, -0.005, 1.42, _s), "fingers" + _x, True),
+        ("thumb" + _x, _hand(0.838, -0.038, 1.410, _s), _hand(0.882, -0.050, 1.408, _s), "hand" + _x, False),
         ("thigh" + _x, (0.10 * _s, 0, 0.88), (0.11 * _s, -0.012, 0.47), "hips", False),
         ("shin" + _x, (0.11 * _s, -0.012, 0.47), (0.11 * _s, 0.008, 0.10), "thigh" + _x, True),
         ("foot" + _x, (0.11 * _s, 0.008, 0.10), (0.11 * _s, -0.06, 0.048), "shin" + _x, True),
@@ -987,6 +987,39 @@ def _build_ball(col, M):
     return ball
 
 
+def _hand_weights(body):
+    """手掌與手指權重：避免自動權重把食指綁到 thumb、或把手掌中段綁到 fingers，讓握拳時四指兩節與拇指各自自然彎曲。"""
+    vgs = {g.name: g for g in body.vertex_groups}
+    for s, sfx in ((1, ".L"), (-1, ".R")):
+        hand_groups = {vgs[n + sfx].index for n in ("hand", "fingers", "fingers2", "thumb")}
+        gh, gf1, gf2, gt = (vgs[n + sfx] for n in ("hand", "fingers", "fingers2", "thumb"))
+        for v in body.data.vertices:
+            if v.co.x * s <= WRIST_X:
+                continue
+            xr = WRIST_X + (v.co.x * s - WRIST_X) / HAND_SCALE
+            yr = v.co.y / HAND_SCALE
+            if xr < 0.795:
+                continue
+            w_total = sum(g.weight for g in v.groups if g.group in hand_groups)
+            if w_total < 1e-4:
+                continue
+            y_sep = -0.032 - 0.004 * _smooth(0.825, 0.855, xr)
+            w_thumb = _smooth(y_sep + 0.003, y_sep - 0.004, yr) * _smooth(0.825, 0.845, xr) * _smooth(0.892, 0.882, xr)
+            pinky_t = _smooth(0.012, 0.025, yr)
+            x_knuckle = 0.873 - 0.006 * pinky_t
+            x_pip = 0.908 - 0.006 * pinky_t
+            w_f1_2 = _smooth(x_knuckle - 0.008, x_knuckle + 0.008, xr) * (1.0 - w_thumb)
+            s_f2 = _smooth(x_pip - 0.006, x_pip + 0.008, xr)
+            w_f2 = w_f1_2 * s_f2
+            w_f1 = w_f1_2 * (1.0 - s_f2)
+            w_h = 1.0 - w_thumb - w_f1 - w_f2
+            for g_obj, w_val in ((gh, w_h), (gf1, w_f1), (gf2, w_f2), (gt, w_thumb)):
+                if w_val * w_total > 1e-4:
+                    g_obj.add([v.index], w_val * w_total, 'REPLACE')
+                else:
+                    g_obj.remove([v.index])
+
+
 # ---------------------------------------------------------------- 主流程
 def build_model(collection_name="Athlete"):
     col = bpy.data.collections.new(collection_name)
@@ -997,6 +1030,7 @@ def build_model(collection_name="Athlete"):
     rig = _build_rig(col, off)
     _select_only([body, rig], rig)
     bpy.ops.object.parent_set(type='ARMATURE_AUTO')        # 自動權重
+    _hand_weights(body)
     _remove_feet(body)
     head_parts = _build_head(col, M, off)
     body = _join(head_parts, body)
