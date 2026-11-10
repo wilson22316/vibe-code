@@ -456,7 +456,10 @@ for _s, _x in ((1, ".L"), (-1, ".R")):
         ("upper_arm" + _x, (0.19 * _s, 0, 1.42), (0.52 * _s, 0.012, 1.42), "shoulder" + _x, True),
         ("forearm" + _x, (0.52 * _s, 0.012, 1.42), (0.775 * _s, 0, 1.42), "upper_arm" + _x, True),
         ("hand" + _x, (WRIST_X * _s, 0, 1.42), _hand(0.83, 0, 1.42, _s), "forearm" + _x, True),
-        ("fingers" + _x, _hand(0.83, 0, 1.42, _s), _hand(0.956, -0.005, 1.42, _s), "hand" + _x, True),
+        # 四指分兩節才握得成拳頭：fingers 到第一個指節（_FINGERS 的第一段結束處），fingers2 到指尖。
+        # 兩根骨頭在同一條線上，fingers2 不轉時和原本只有一根 fingers 的形狀相同
+        ("fingers" + _x, _hand(0.83, 0, 1.42, _s), _hand(0.908, -0.003, 1.42, _s), "hand" + _x, True),
+        ("fingers2" + _x, _hand(0.908, -0.003, 1.42, _s), _hand(0.956, -0.005, 1.42, _s), "fingers" + _x, True),
         ("thumb" + _x, _hand(0.810, -0.030, 1.414, _s), _hand(0.882, -0.050, 1.408, _s), "hand" + _x, False),
         ("thigh" + _x, (0.10 * _s, 0, 0.88), (0.11 * _s, -0.012, 0.47), "hips", False),
         ("shin" + _x, (0.11 * _s, -0.012, 0.47), (0.11 * _s, 0.008, 0.10), "thigh" + _x, True),

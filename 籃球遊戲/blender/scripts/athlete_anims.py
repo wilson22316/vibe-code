@@ -21,8 +21,9 @@ SHOOT_END = 36           # Shoot 最後一格（回到運球站姿）
 CONTACT_GAP = -0.003     # 球貼在手上時，手指微微壓進球皮的深度（匯出縮放後的公尺）
 PALM_T = 0.016           # 掌心到手骨中線的厚度（縮放前），用來從球的位置推回手腕
 PALM_A = 0.075           # 掌心中央離手腕的距離（縮放前）
-FIST_CURL = -1.2          # 跑步時四指往掌心彎的弧度（見 Poser.loose_fist）
-FIST_THUMB = -0.4         # 拇指靠向食指的弧度
+FIST_CURL = -1.4          # 握拳時四指在指根往掌心彎的弧度（見 Poser.loose_fist）
+FIST_CURL2 = -1.8         # 第一個指節再彎的弧度
+FIST_THUMB = -0.8         # 拇指靠向食指的弧度
 TWIST_SHARE = 0.5        # 手的扭轉有多少比例改由前臂承擔（見 Poser.distribute_twist）
 WRIST_MAX_BEND = 75      # 手腕最多彎幾度（見 Poser.limit_wrist）
 LEFT_RELAX = 5           # 投籃出手後，扶球的左手幾格內放鬆回直
@@ -66,7 +67,7 @@ class Poser:
         self.s = scale
         self.ball_lift = V((0, 0, (1 - scale) * R_BALL / scale))
         self.body = next(c for c in rig.children if c.type == 'MESH')
-        self.hand_idx = {sfx: self._verts_of({"hand" + sfx, "fingers" + sfx, "thumb" + sfx}) for sfx in (".R", ".L")}
+        self.hand_idx = {sfx: self._verts_of({"hand" + sfx, "fingers" + sfx, "fingers2" + sfx, "thumb" + sfx}) for sfx in (".R", ".L")}
 
     def _verts_of(self, groups):
         """主要權重落在 groups 裡的頂點。"""
@@ -112,10 +113,11 @@ class Poser:
         inward = V((1, 0, 0)) if sfx == ".R" else V((-1, 0, 0))
         self.palm("hand" + sfx, self.pb["forearm" + sfx].matrix.col[1].to_3d(), inward, w)
 
-    def loose_fist(self, sfx, curl=FIST_CURL, thumb=FIST_THUMB):
-        """跑步時手微握：四指往掌心彎、拇指靠向食指。手指只有一根骨頭，握不成真的拳頭，
-        但比五指張開伸直（像手刀）自然。要在 pose 之後呼叫（pose 會把骨頭歸零）。"""
+    def loose_fist(self, sfx, curl=FIST_CURL, curl2=FIST_CURL2, thumb=FIST_THUMB):
+        """跑步時握拳：四指在指根（fingers）和第一個指節（fingers2）各彎一次、拇指靠向食指。
+        只彎指根的話手指像一塊折起來的板子，不像拳頭。要在 pose 之後呼叫（pose 會把骨頭歸零）。"""
         self.pb["fingers" + sfx].rotation_quaternion = Quaternion((1, 0, 0), curl)
+        self.pb["fingers2" + sfx].rotation_quaternion = Quaternion((1, 0, 0), curl2)
         self.pb["thumb" + sfx].rotation_quaternion = Quaternion((1, 0, 0), thumb)
         self._upd()
 
