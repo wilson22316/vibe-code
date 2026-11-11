@@ -146,6 +146,7 @@ onBeforeUnmount(() => {
     <span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移動</span>
     <span><kbd>A</kbd> 突破（加方向鍵）</span>
     <span><kbd>空白鍵</kbd> 按下起跳、按住加力道、放開出手（衝向籃框時上籃或灌籃）；沒球時跳起來搶籃板<template v-if="duel">、封蓋</template></span>
+    <span v-if="duel"><kbd>A</kbd> 防守時按住自動跟防</span>
     <span v-if="duel"><kbd>D</kbd> 抄球（防守時）</span>
     <span><kbd>Esc</kbd> 暫停</span>
   </div>

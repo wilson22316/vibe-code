@@ -16,6 +16,8 @@ export const SPRINT_SPEED_SCALE = 1.75
 const BURST_SCALE = 1.45
 const BURST_SECONDS = 0.4
 const BURST_COOLDOWN = 2
+// 防守輔助（1 對 1 防守時按住 A）：自己滑步跟到防守位置的最快速度（m/s）
+const GUARD_ASSIST_SPEED = 3.2
 // 投籃：仰角（離籃框 2 m 內用 NEAR、6 m 外用 FAR，中間線性變化；近距離弧度太平的話球進框的角度太斜，
 // 會一直彈框）、出手速度範圍（CLAUDE.md：4～13 m/s）、按下空白鍵後力道條從 0 加到滿的秒數
 const SHOT_ANGLE_NEAR = 62
@@ -136,7 +138,8 @@ export const shotSideError = (grade) => THREE.MathUtils.degToRad(gauss() * SHOT_
 //   dunkOpen() 切入時能不能灌籃（不能就上籃）、contest(from) 出手時被干擾的程度（隨機誤差乘上這個倍數，1 是沒被干擾）、
 //   onBurst() 玩家用了突破、steal() 玩家伸手抄球（回傳有沒有抄到）、defending() 玩家是不是防守方（站著時用防守站姿）、
 //   fixedCamera 固定鏡頭 { position, target }（有給的話鏡頭不跟拍，↑ 固定是往籃框那一端）、
-//   faceTarget() 站著不動時自動面向的位置（防守時面向對手；不用就回傳 null）
+//   faceTarget() 站著不動時自動面向的位置（防守時面向對手；不用就回傳 null）、
+//   guardSpot() 防守輔助要站的位置（沒持球時按住 A、不按方向鍵，角色自己滑步過去；不能用就回傳 null）
 export function createPracticeControls({ onCharge = () => {}, onShot = () => {}, onResult = () => {}, rules = {} } = {}) {
   let stage = null
   let character = null
@@ -343,6 +346,11 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   // 自由移動：方向鍵用衝刺速度移動，突破中再加速（投籃動作中由 updateShot 移動）
   function move(delta) {
     const dir = inputDirection()
+    const spot = !hasBall && !dir && held.has('KeyA') ? rules.guardSpot?.() : null
+    if (spot) {
+      guardAssist(spot, delta)
+      return
+    }
     setClip(dir ? (hasBall ? CLIPS : NO_BALL).sprint : standClip())
     // 角色面向 +Z 時 rotation.y = 0，所以面向 (x, z) 的角度是 atan2(x, z)
     if (dir) turnTowards(Math.atan2(dir.x, dir.z), delta)
@@ -363,6 +371,26 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     const a = character.rotation.y
     moveBy(Math.sin(a) * speed * delta, Math.cos(a) * speed * delta)
     rules.collide?.(character.position)
+  }
+
+  // 防守輔助：面向對手、滑步到 spot。DefenseSlide 是往角色左邊滑，往右就倒著播；前後的移動直接平移
+  function guardAssist(spot, delta) {
+    const p = character.position
+    const face = rules.faceTarget?.() ?? spot
+    turnTowards(Math.atan2(face.x - p.x, face.z - p.z), delta)
+    const dx = spot.x - p.x
+    const dz = spot.z - p.z
+    const d = Math.hypot(dx, dz)
+    const v = Math.min(GUARD_ASSIST_SPEED, d / 0.12) // 快到位時慢下來，不會來回抖
+    speed = 0
+    if (d > 1e-4) moveBy((dx / d) * v * delta, (dz / d) * v * delta)
+    rules.collide?.(p)
+    const a = character.rotation.y
+    const left = d > 1e-4 ? ((dx * Math.cos(a) - dz * Math.sin(a)) / d) * v : 0 // 往角色左邊（+X）的速度
+    if (Math.abs(left) > (clip === 'DefenseSlide' ? 0.15 : 0.4)) {
+      setClip('DefenseSlide')
+      stage.setTimeScale(left / MOVE_SPEEDS.DefenseSlide)
+    } else setClip(DEFENSE_STAND)
   }
 
   // 移動角色，並留在半場內

@@ -132,6 +132,7 @@ export function createDuel({ onScore = () => {}, onMessage = () => {}, onEnd = (
   const aim = new THREE.Vector3()
   const target = new THREE.Vector3()
   const to = new THREE.Vector3()
+  const assist = new THREE.Vector3()
 
   function setClip(name, scale = 1, startAt = 0) {
     if (clip !== name) foe.play(name, FADE, scale, startAt)
@@ -513,6 +514,13 @@ export function createDuel({ onScore = () => {}, onMessage = () => {}, onEnd = (
     },
     defending: () => offense === 'foe',
     faceTarget: () => (offense === 'foe' && foe ? foe.root.position : null),
+    // 防守輔助：對手拿球時，站在他往籃框方向 GUARD_GAP m 的地方
+    guardSpot() {
+      if (offense !== 'foe' || phase !== 'play' || (mode !== 'dribble' && mode !== 'shot')) return null
+      const p = foe.root.position
+      const d = flat(rim, p)
+      return assist.set(p.x + ((rim.x - p.x) / d) * Math.min(GUARD_GAP, d * 0.5), 0, p.z + ((rim.z - p.z) / d) * Math.min(GUARD_GAP, d * 0.5))
+    },
     fixedCamera: CAMERA,
   }
 
