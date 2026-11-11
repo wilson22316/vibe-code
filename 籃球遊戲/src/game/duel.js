@@ -71,10 +71,15 @@ const FOE_DUNK_CLEAR = 2.5
 const NEXT_DELAY = 1.8
 // =========================
 
-// 固定鏡頭：在中線後上方往籃框看，整個半場都在畫面裡（跟拍的話攻守轉換時畫面一直轉，會暈）
+// 固定鏡頭：在球場後上方往籃框看（跟拍的話攻守轉換時畫面一直轉，會暈）。
+// CAMERA_BACK 鏡頭在籃框前方幾 m（越小越近、角色越大，太小的話三分線弧頂和兩側底角會跑出畫面）、
+// CAMERA_HEIGHT 鏡頭高度（越高越俯視）、CAMERA_LOOK 鏡頭看向籃框前方幾 m 的地面附近（越小畫面越往籃框那邊移）
+const CAMERA_BACK = 14.5
+const CAMERA_HEIGHT = 7
+const CAMERA_LOOK = 3
 const CAMERA = {
-  position: new THREE.Vector3(0, 8.5, NIGHT_BASKET_Z + 17.5),
-  target: new THREE.Vector3(0, 1, NIGHT_BASKET_Z + 3.5),
+  position: new THREE.Vector3(0, CAMERA_HEIGHT, NIGHT_BASKET_Z + CAMERA_BACK),
+  target: new THREE.Vector3(0, 1, NIGHT_BASKET_Z + CAMERA_LOOK),
 }
 const BASELINE_Z = NIGHT_BASKET_Z - COURT.BASKET_TO_BASELINE
 const MARGIN = 0.3
