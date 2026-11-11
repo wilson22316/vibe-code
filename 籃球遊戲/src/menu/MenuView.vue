@@ -23,18 +23,21 @@ const MAIN_ITEMS = [
   { label: '操作說明', to: 'controls' },
 ]
 const MODES = [
-  { label: '1 對 1', note: '半場', soon: true },
+  { label: '1 對 1', note: '半場', play: 'duel' },
   { label: '3 對 3', note: '半場', soon: true },
   { label: '5 對 5', note: '全場', soon: true },
 ]
 // 按鍵配置；投籃、傳球還沒做好（見 TODO.md）
 const KEYS = [
   ['方向鍵', '移動'],
-  ['A', '衝刺（按住）'],
+  ['A', '突破（按著方向鍵時爆發加速）'],
   ['空白鍵', '投籃（按住蓄力、放開出手；衝到籃下自動上籃或灌籃）'],
   ['D', '請隊友傳球'],
   ['F', '傳球'],
-  ['空白鍵（防守時）', '跳起封阻、搶籃板'],
+  ['空白鍵（沒持球時）', '跳起封阻、搶籃板'],
+  ['A（防守時）', '按住自動跟防（放開方向鍵）'],
+  ['D（防守時）', '抄球'],
+  ['V', '顯示／隱藏遊戲中的操作說明'],
   ['Esc', '暫停／返回'],
 ]
 
@@ -172,7 +175,7 @@ onBeforeUnmount(() => {
     <section v-else-if="screen === 'modes'" class="panel">
       <h2>選擇模式</h2>
       <div class="items">
-        <button v-for="mode in MODES" :key="mode.label" type="button" class="item" :disabled="mode.soon">
+        <button v-for="mode in MODES" :key="mode.label" type="button" class="item" :disabled="mode.soon" @click="open(mode)">
           {{ mode.label }}
           <small>{{ mode.note }}</small>
           <span v-if="mode.soon" class="soon">即將推出</span>

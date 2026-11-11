@@ -33,10 +33,16 @@ const COLORS = {
   boardMark: '#c7684e',
   rim: '#e0733f',
   net: '#fcf9f2',
+  fence: '#55657a', // 圍欄的柱子、橫桿
+  fenceMesh: '#aebccd', // 圍欄的鐵絲網
 }
 
 const LINE_WIDTH = 0.05
-const RUNOFF = 1.0 // 球場外留的空地（公尺）
+const RUNOFF = 3.0 // 球場外鋪面的寬度（公尺）；外緣是圍欄
+// 圍欄：圍住兩側和籃架後方（中線那側不圍，鏡頭在那邊）。高度、柱子間距、鐵絲網菱形格的大小（公尺）
+const FENCE_HEIGHT = 3
+const FENCE_POST_GAP = 3
+const FENCE_CELL = 0.3
 const PX_PER_M = 120
 
 // 地面貼圖：世界座標 (x, z) 畫到畫布上，畫布上緣是最靠籃架那側
@@ -121,6 +127,68 @@ function createNet(material) {
   return new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points), material)
 }
 
+// 鐵絲網的貼圖：透明底、兩條斜線交叉成菱形格，重複鋪滿
+function createMeshTexture() {
+  const size = 64
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const g = canvas.getContext('2d')
+  g.strokeStyle = COLORS.fenceMesh
+  g.lineWidth = 5
+  g.lineCap = 'square'
+  g.beginPath()
+  g.moveTo(0, 0)
+  g.lineTo(size, size)
+  g.moveTo(size, 0)
+  g.lineTo(0, size)
+  g.stroke()
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+  texture.anisotropy = 8
+  return texture
+}
+
+// 圍欄：沿鋪面外緣的兩側和籃架後方，一根根柱子、上下橫桿、中間是半透明的鐵絲網
+function createFence(floor, material) {
+  const group = new THREE.Group()
+  group.name = 'Fence'
+  const x1 = floor.width / 2
+  const z0 = floor.center.z - floor.length / 2
+  const z1 = floor.center.z + floor.length / 2
+  const frame = material(COLORS.fence)
+  const mesh = createMeshTexture()
+  // 每一段：[起點 x, z, 終點 x, z]
+  for (const [ax, az, bx, bz] of [[-x1, z1, -x1, z0], [-x1, z0, x1, z0], [x1, z0, x1, z1]]) {
+    const length = Math.hypot(bx - ax, bz - az)
+    const angle = Math.atan2(bx - ax, bz - az)
+    const mid = new THREE.Vector3((ax + bx) / 2, 0, (az + bz) / 2)
+    const posts = Math.round(length / FENCE_POST_GAP)
+    for (let i = 0; i <= posts; i++) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, FENCE_HEIGHT, 8), frame)
+      post.position.set(ax + ((bx - ax) * i) / posts, FENCE_HEIGHT / 2, az + ((bz - az) * i) / posts)
+      group.add(post)
+    }
+    for (const y of [0.05, FENCE_HEIGHT]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, length), frame)
+      rail.position.copy(mid).setY(y)
+      rail.rotation.y = angle
+      group.add(rail)
+    }
+    const map = mesh.clone()
+    map.repeat.set(length / FENCE_CELL, FENCE_HEIGHT / FENCE_CELL)
+    const panel = new THREE.Mesh(
+      new THREE.PlaneGeometry(length, FENCE_HEIGHT),
+      new THREE.MeshBasicMaterial({ map, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }),
+    )
+    panel.position.copy(mid).setY(FENCE_HEIGHT / 2)
+    panel.rotation.y = angle + Math.PI / 2
+    group.add(panel)
+  }
+  mesh.dispose()
+  return group
+}
+
 // material(hex) 由呼叫端提供（卡通材質）；需要描邊的網格標上 userData.outline
 export function createCourt({ basketZ = -4.2, material }) {
   const C = COURT
@@ -135,6 +203,7 @@ export function createCourt({ basketZ = -4.2, material }) {
   ground.position.copy(floor.center)
   ground.receiveShadow = true
   group.add(ground)
+  group.add(createFence(floor, material))
 
   const add = (geometry, hex, position, outline = true) => {
     const mesh = new THREE.Mesh(geometry, material(hex))
