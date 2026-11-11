@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { createGallery } from '../gallery/scene.js'
 import { KITS, loadColors } from '../menu/teamColors.js'
 import { WIN_SCORE, createDuel } from './duel.js'
@@ -13,6 +13,7 @@ const emit = defineEmits(['exit'])
 const stage = ref(null)
 const status = ref('載入中…')
 const paused = ref(false)
+const showHint = ref(true) // 左上角的操作說明，按 V 切換
 const charge = ref(null) // 蓄力中：{ power, ideal, perfect, good }（0～1）
 const stats = ref({ shots: 0, makes: 0 })
 const toast = ref(null) // { message, made }
@@ -65,8 +66,14 @@ function foeColors() {
 
 function playAgain() {
   winner.value = null
+  elapsed.value = 0
   duel.restart()
 }
+
+// 計分板的時間：這場比賽打了多久（1 對 1 沒有比賽時間限制，所以是往上數）
+const elapsed = ref(0)
+const pad = (n) => String(n).padStart(2, '0')
+const clockText = computed(() => `${pad(Math.floor(elapsed.value / 60) % 100)}:${pad(Math.floor(elapsed.value) % 60)}`)
 
 const percent = (x) => `${(x * 100).toFixed(1)}%`
 // 判定區（以理想力道為中心、左右各 half 寬）在蓄力條上的位置
@@ -78,6 +85,7 @@ function setPaused(value) {
 }
 
 function onKey(event) {
+  if (event.code === 'KeyV' && !event.repeat) showHint.value = !showHint.value
   if (event.key === 'Escape') setPaused(!paused.value)
 }
 
@@ -89,6 +97,7 @@ onMounted(() => {
     onFrame: (delta) => {
       controls.update(delta, paused.value)
       duel?.update(delta, paused.value)
+      if (duel && !paused.value && !winner.value) elapsed.value += Math.min(delta, 0.1)
     },
   })
   court.setTeamColors(loadColors())
@@ -119,10 +128,23 @@ onBeforeUnmount(() => {
   <div ref="stage" class="stage"></div>
   <p v-if="status" class="status">{{ status }}</p>
 
-  <div v-if="duel" class="stats">
-    <span>你 <b>{{ match.you }}</b> : <b>{{ match.foe }}</b> 對手</span>
-    <span>先得 {{ WIN_SCORE }} 分</span>
-    <span>{{ match.offense === 'you' ? '你進攻' : '你防守' }}</span>
+  <!-- 1 對 1 的計分板：仿室內 LED 計分板（隊名、分數、球權箭頭、時間）；犯規、暫停、節次之後 5 對 5 再加 -->
+  <div v-if="duel" class="board" aria-hidden="true">
+    <div class="side">
+      <span class="name">你</span>
+      <span class="led score" data-ghost="88">{{ match.you }}</span>
+    </div>
+    <div class="middle">
+      <span class="arrow" :class="match.offense">
+        <i class="left">◀</i><i class="right">▶</i>
+      </span>
+      <span class="led clock" data-ghost="88:88">{{ clockText }}</span>
+      <span class="goal">先得 {{ WIN_SCORE }} 分</span>
+    </div>
+    <div class="side">
+      <span class="name">對手</span>
+      <span class="led score" data-ghost="88">{{ match.foe }}</span>
+    </div>
   </div>
   <div v-else class="stats">
     <span>投籃 <b>{{ stats.shots }}</b></span>
@@ -142,13 +164,17 @@ onBeforeUnmount(() => {
   </div>
   <p v-if="grade" class="grade" :class="grade">{{ GRADE_LABELS[grade] }}</p>
 
-  <div class="hint" aria-hidden="true">
+  <!-- 操作說明：左上角、一個按鍵一列，按 V 顯示或隱藏（載入中的訊息也在左上角，那時先不顯示） -->
+  <div v-if="showHint && !status" class="hint" aria-hidden="true">
     <span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移動</span>
     <span><kbd>A</kbd> 突破（加方向鍵）</span>
-    <span><kbd>空白鍵</kbd> 按下起跳、按住加力道、放開出手（衝向籃框時上籃或灌籃）；沒球時跳起來搶籃板<template v-if="duel">、封蓋</template></span>
+    <span><kbd>空白鍵</kbd> 按下起跳、按住加力道、放開出手</span>
+    <span><kbd>空白鍵</kbd> 衝向籃框時上籃或灌籃</span>
+    <span><kbd>空白鍵</kbd> 沒球時跳起來搶籃板<template v-if="duel">、封蓋</template></span>
     <span v-if="duel"><kbd>A</kbd> 防守時按住自動跟防</span>
     <span v-if="duel"><kbd>D</kbd> 抄球（防守時）</span>
     <span><kbd>Esc</kbd> 暫停</span>
+    <span><kbd>V</kbd> 顯示／隱藏操作說明</span>
   </div>
 
   <div v-if="winner" class="pause">
@@ -171,16 +197,17 @@ onBeforeUnmount(() => {
 <style scoped>
 .hint {
   position: fixed;
+  top: 16px;
   left: 16px;
-  bottom: 16px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  padding: 8px 14px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
   border-radius: 6px;
-  background: rgba(21, 27, 58, 0.72);
+  background: rgba(21, 27, 58, 0.7);
   color: #fcf9f2;
-  font: 14px sans-serif;
+  font: 13px sans-serif;
+  pointer-events: none;
 }
 
 .stats {
@@ -194,6 +221,97 @@ onBeforeUnmount(() => {
   background: rgba(21, 27, 58, 0.72);
   color: #fcf9f2;
   font: 14px sans-serif;
+}
+
+/* LED 計分板：深色面板、紅底隊名、琥珀色分數、紅色時間；每組數字後面有一層暗的 8 當作沒亮的燈 */
+.board {
+  position: fixed;
+  top: 12px;
+  right: 16px; /* 放右上角：放正中間會擋到籃板和飛向籃框的球 */
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 14px;
+  border: 3px solid #0b0b0d;
+  border-radius: 6px;
+  background: #2a2a2e;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.board .side,
+.board .middle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.board .name {
+  min-width: 84px;
+  padding: 2px 8px;
+  border: 1px solid #5a1a12;
+  background: #3a0f0a;
+  color: #ff5a36;
+  font: bold 16px sans-serif;
+  letter-spacing: 2px;
+  text-align: center;
+  text-shadow: 0 0 6px rgba(255, 90, 54, 0.8);
+}
+
+.board .led {
+  position: relative;
+  padding: 2px 8px;
+  border: 1px solid #000;
+  background: #111;
+  font-family: Consolas, 'Courier New', monospace;
+  font-weight: bold;
+  line-height: 1;
+  text-align: right;
+}
+
+/* 沒亮的燈：同一個位置疊一層暗色的 8，亮的數字蓋在上面 */
+.board .led::before {
+  content: attr(data-ghost);
+  position: absolute;
+  right: 8px;
+  opacity: 0.12;
+}
+
+.board .score {
+  min-width: 2ch;
+  color: #ffb62e;
+  font-size: 44px;
+  text-shadow: 0 0 8px rgba(255, 170, 40, 0.85);
+}
+
+.board .clock {
+  color: #ff3b30;
+  font-size: 30px;
+  text-shadow: 0 0 8px rgba(255, 59, 48, 0.85);
+}
+
+.board .arrow {
+  display: flex;
+  gap: 10px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.board .arrow i {
+  color: #4a4032;
+  font-style: normal;
+}
+
+.board .arrow.you .left,
+.board .arrow.foe .right {
+  color: #ffb62e;
+  text-shadow: 0 0 8px rgba(255, 170, 40, 0.9);
+}
+
+.board .goal {
+  color: #b9b4a8;
+  font: 11px sans-serif;
 }
 
 .stats b {

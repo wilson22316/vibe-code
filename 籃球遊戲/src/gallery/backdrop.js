@@ -171,6 +171,41 @@ export function createNightSky() {
   return canvasTexture(c)
 }
 
+// 球場圍欄外的一排大樓（立起來的平面，貼上大樓剪影）：width、height 公尺，seed 讓每一面長得不一樣。
+// 從高處往下看時，背景貼圖裡的城市會被地面擋住，圍欄外只剩一片地面的灰色，所以另外立幾面在場邊。
+// 不受霧影響（遠處才不會變成一片灰），天際線以上是透明的。
+export function createCityWall({ width, height, seed = 1 }) {
+  const PX = 16 // 每公尺幾個像素
+  const c = document.createElement('canvas')
+  c.width = Math.round(width * PX)
+  c.height = Math.round(height * PX)
+  const x = c.getContext('2d')
+  const rnd = seeded(seed)
+  let bx = 0
+  while (bx < c.width) {
+    const w = (5 + rnd() * 7) * PX
+    const h = (0.45 + rnd() * 0.55) * c.height
+    const top = c.height - h
+    x.fillStyle = rnd() > 0.5 ? '#1f2440' : '#262b4a'
+    x.fillRect(bx, top, w + 1, h)
+    for (let wy = top + 14; wy < c.height - 30; wy += 26) {
+      for (let wx = bx + 10; wx < bx + w - 16; wx += 22) {
+        if (rnd() > 0.7) {
+          x.fillStyle = rnd() > 0.3 ? '#ffd98a' : '#f4efe4'
+          x.fillRect(wx, wy, 9, 13)
+        }
+      }
+    }
+    bx += w
+  }
+  const wall = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({ map: canvasTexture(c), transparent: true, fog: false }),
+  )
+  wall.position.y = height / 2
+  return wall
+}
+
 // 球場四角的照明燈柱，燈頭會發光（真正打光的燈在 scene.js）。material(hex) 由呼叫端提供。
 export function createFloodlights({ positions, height = 8, material }) {
   const group = new THREE.Group()

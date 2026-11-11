@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
-import { NIGHT_GROUND, createFloodlights, createGrass, createNightSky, createSky } from './backdrop.js'
+import { NIGHT_GROUND, createCityWall, createFloodlights, createGrass, createNightSky, createSky } from './backdrop.js'
 import { createCourt } from '../game/court.js'
 
 const MODEL_URL = `${import.meta.env.BASE_URL}models/athlete_game.glb`
@@ -118,6 +118,9 @@ const TEAM_MATERIALS = { shirt: 'Athlete_Shirt', shorts: 'Athlete_Shorts' }
 
 // 夜晚球場（主畫面）：籃框在角色後方 4.2 m（罰球線附近），照明燈在球場四角
 export const NIGHT_BASKET_Z = -4.2
+// 圍欄外的大樓：離籃框多遠（左右兩面再遠 4 m）、最高的樓多高（公尺）
+const CITY_DISTANCE = 16
+const CITY_HEIGHT = 9
 const FLOODLIGHTS = [[-9.5, -7.5], [9.5, -7.5], [-9.5, 9], [9.5, 9]]
 const NIGHT_HEMI = { sky: 0x6f78b8, ground: 0x2e3440, intensity: 0.45 * Math.PI }
 const SPOT = { color: 0xffe2b0, intensity: 0.95 * Math.PI, position: [-4.5, 8, 7] }
@@ -156,6 +159,14 @@ function addNightCourt(scene, gradientMap, outline) {
   ground.rotation.x = -Math.PI / 2
   ground.position.y = -0.005
   scene.add(ground)
+  // 圍欄外三面的大樓：籃架後方一面、左右各一面（面向球場）
+  for (const [px, pz, turn, seed] of [[0, NIGHT_BASKET_Z - CITY_DISTANCE, 0, 5], [-CITY_DISTANCE - 4, NIGHT_BASKET_Z + 6, Math.PI / 2, 11], [CITY_DISTANCE + 4, NIGHT_BASKET_Z + 6, -Math.PI / 2, 17]]) {
+    const wall = createCityWall({ width: 64, height: CITY_HEIGHT, seed })
+    wall.position.x = px
+    wall.position.z = pz
+    wall.rotation.y = turn
+    scene.add(wall)
+  }
   const court = createCourt({ basketZ: NIGHT_BASKET_Z, material })
   const lights = createFloodlights({ positions: FLOODLIGHTS, material })
   for (const group of [court, lights]) {
