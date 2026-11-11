@@ -135,7 +135,8 @@ export const shotSideError = (grade) => THREE.MathUtils.degToRad(gauss() * SHOT_
 //   collide(position) 自由移動後修正角色位置（不能穿過對手）、laneOpen() 切入路線有沒有被擋住（擋住就不能上籃、灌籃）、
 //   dunkOpen() 切入時能不能灌籃（不能就上籃）、contest(from) 出手時被干擾的程度（隨機誤差乘上這個倍數，1 是沒被干擾）、
 //   onBurst() 玩家用了突破、steal() 玩家伸手抄球（回傳有沒有抄到）、defending() 玩家是不是防守方（站著時用防守站姿）、
-//   cameraAnchor() 鏡頭跟著誰（預設跟玩家；對手進攻時跟對手，兩個人才都在畫面裡）
+//   fixedCamera 固定鏡頭 { position, target }（有給的話鏡頭不跟拍，↑ 固定是往籃框那一端）、
+//   faceTarget() 站著不動時自動面向的位置（防守時面向對手；不用就回傳 null）
 export function createPracticeControls({ onCharge = () => {}, onShot = () => {}, onResult = () => {}, rules = {} } = {}) {
   let stage = null
   let character = null
@@ -230,8 +231,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     freeBall.visible = false
     character.position.copy(position)
     character.rotation.y = facingRim() + (ball ? 0 : Math.PI)
-    cameraYaw = yawToAim()
-    placeCamera(1)
+    updateCamera(1)
     clip = null
     setClip(standClip(), 0)
   }
@@ -307,7 +307,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
 
   // 從角色往 AIM 的水平方向角（0 是往 -Z、往 -X 為正）
   function yawToAim() {
-    const p = rules.cameraAnchor?.() ?? character.position
+    const p = character.position
     return Math.atan2(-(AIM.x - p.x), -(AIM.z - p.z))
   }
 
@@ -346,6 +346,10 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     setClip(dir ? (hasBall ? CLIPS : NO_BALL).sprint : standClip())
     // 角色面向 +Z 時 rotation.y = 0，所以面向 (x, z) 的角度是 atan2(x, z)
     if (dir) turnTowards(Math.atan2(dir.x, dir.z), delta)
+    else {
+      const face = rules.faceTarget?.()
+      if (face) turnTowards(Math.atan2(face.x - character.position.x, face.z - character.position.z), delta)
+    }
 
     burst = Math.max(0, burst - delta)
     burstWait = Math.max(0, burstWait - delta)
@@ -628,8 +632,21 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   }
 
   // k：這一格鏡頭往目標移動的比例（1 是直接到位）
+  // 鏡頭：固定鏡頭直接擺好（往 -Z 看，所以 ↑ 是往籃框）；不然在角色背後跟拍，慢慢轉向籃框後方的點
+  function updateCamera(k) {
+    const fixed = rules.fixedCamera
+    if (fixed) {
+      cameraYaw = 0
+      stage.camera.position.copy(fixed.position)
+      stage.camera.lookAt(fixed.target)
+      return
+    }
+    cameraYaw = k >= 1 ? yawToAim() : wrapAngle(cameraYaw + wrapAngle(yawToAim() - cameraYaw) * k)
+    placeCamera(k)
+  }
+
   function placeCamera(k) {
-    const p = rules.cameraAnchor?.() ?? character.position
+    const p = character.position
     const fx = -Math.sin(cameraYaw)
     const fz = -Math.cos(cameraYaw)
     goal.set(p.x - fx * CAMERA.back, CAMERA.height, p.z - fz * CAMERA.back)
@@ -652,9 +669,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
       stage.getBall().visible = false // 沒持球時，動作裡的球（例如 Idle 放在腳邊的球）不顯示
       if (mode !== 'act') tryPickup()
     }
-    const k = Math.min(1, delta / CAMERA.ease)
-    cameraYaw = wrapAngle(cameraYaw + wrapAngle(yawToAim() - cameraYaw) * k)
-    placeCamera(k)
+    updateCamera(Math.min(1, delta / CAMERA.ease))
   }
 
   return {
@@ -670,14 +685,14 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     shotAngle,
     drivePlan,
     releaseLocals: () => ({ jump: releaseLocal, ...driveLocal }),
-    // 玩家的狀態：shooting 是投籃動作的種類（jump、Layup、Dunk；沒在投是 null）、jumping 是沒持球跳在空中、
+    // 玩家的狀態：shooting 是投籃動作的種類（jump、Layup、Dunk；沒在投是 null）、jumping 是沒持球時正在跳（從按下到落地）、
     // ball 是離手後場上的球（position、velocity、judged 判定過了沒、by 誰投的；沒有是 null）
     state: () => ({
       position: character.position,
       facing: character.rotation.y,
       hasBall,
       shooting: mode === 'shoot' ? shot.kind : null,
-      jumping: mode === 'act' && act.kind === 'jump' && act.time >= ACTS.jump.air,
+      jumping: mode === 'act' && act.kind === 'jump',
       ball: shot?.ball ? { position: shot.ball.p, velocity: shot.ball.v, judged: shot.judged, by: shot.by ?? 'you' } : null,
     }),
   }

@@ -42,23 +42,28 @@ const REBOUND_WAIT = 0.6
 
 // --- 玩家防守 ---
 // 抄球：對手運球中、離他 STEAL_RANGE m 內按 D，有 STEAL_CHANCE 的機率抄到
-const STEAL_RANGE = 1.3
-const STEAL_CHANCE = 0.4
-// 封蓋：對手出手那一刻玩家跳在空中、在他前方 BLOCK_RANGE m 內就蓋掉
-const BLOCK_RANGE = 1.4
+const STEAL_RANGE = 1.6
+const STEAL_CHANCE = 0.55
+// 封蓋：對手出手那一刻玩家正在跳（從按下空白鍵到落地，約 0.67 秒）、在他前方 BLOCK_RANGE m 內就蓋掉
+const BLOCK_RANGE = 1.8
+// 玩家干擾對手出手的範圍和強度（同上面的 CONTEST_RANGE、CONTEST_MAX，放寬讓防守比較有用）
+const GUARD_CONTEST_RANGE = 2.4
+const GUARD_CONTEST_MAX = 5
+// 玩家在對手到籃框的直線兩側這麼寬以內，對手就不切入（比玩家切入的 LANE_HALF_WIDTH 寬，站在前面就擋得住）
+const GUARD_LANE_HALF_WIDTH = 1.0
 
 // --- 對手進攻 ---
 // 運球移動的速度是 Sprint（2.843 m/s）的幾倍；每 FOE_THINK 秒決定一次要做什麼
-const FOE_SPRINT_SCALE = 1.2
-const FOE_THINK = 0.5
+const FOE_SPRINT_SCALE = 0.95
+const FOE_THINK = 0.7
 // 玩家離對手超過 FOE_OPEN m 算有空檔，離籃框 FOE_SHOT_RANGE m 內每次決定有 FOE_SHOOT_CHANCE 的機率跳投；
 // 拿球超過 FOE_SHOT_CLOCK 秒就算沒空檔也出手
 const FOE_OPEN = 1.6
 const FOE_SHOT_RANGE = 7.2
 const FOE_SHOOT_CHANCE = 0.5
 const FOE_SHOT_CLOCK = 8
-// 對手跳投的隨機誤差（標準差，同 practice.js 的 SHOT_ERROR）；沒被干擾時約和玩家的 GOOD 差不多
-const FOE_SHOT_ERROR = { speed: 0.02, side: 1.5 }
+// 對手跳投的隨機誤差（標準差，同 practice.js 的 SHOT_ERROR）；沒被干擾時比玩家的 GOOD 差一些
+const FOE_SHOT_ERROR = { speed: 0.028, side: 2 }
 // 對手離玩家超過這個距離時，切入有一半機率灌籃
 const FOE_DUNK_CLEAR = 2.5
 
@@ -66,6 +71,11 @@ const FOE_DUNK_CLEAR = 2.5
 const NEXT_DELAY = 1.8
 // =========================
 
+// 固定鏡頭：在中線後上方往籃框看，整個半場都在畫面裡（跟拍的話攻守轉換時畫面一直轉，會暈）
+const CAMERA = {
+  position: new THREE.Vector3(0, 8.5, NIGHT_BASKET_Z + 17.5),
+  target: new THREE.Vector3(0, 1, NIGHT_BASKET_Z + 3.5),
+}
 const BASELINE_Z = NIGHT_BASKET_Z - COURT.BASKET_TO_BASELINE
 const MARGIN = 0.3
 const START = new THREE.Vector3(0, 0, NIGHT_BASKET_Z + 6.5) // 開球位置，同 practice.js
@@ -240,22 +250,22 @@ export function createDuel({ onScore = () => {}, onMessage = () => {}, onEnd = (
   }
 
   // from 到籃框的直線上（前方）有沒有 blocker 擋著
-  function laneClear(from, blocker) {
+  function laneClear(from, blocker, halfWidth = LANE_HALF_WIDTH) {
     const lx = rim.x - from.x
     const lz = rim.z - from.z
     const length = Math.hypot(lx, lz)
     const along = ((blocker.x - from.x) * lx + (blocker.z - from.z) * lz) / length
     if (along < 0 || along > length) return true
-    return Math.abs((blocker.x - from.x) * lz - (blocker.z - from.z) * lx) / length > LANE_HALF_WIDTH
+    return Math.abs((blocker.x - from.x) * lz - (blocker.z - from.z) * lx) / length > halfWidth
   }
 
   // 出手誤差的倍數：防守者 defender 在出手點 from 和籃框之間、越近越大；jumping 防守者跳起來了
-  function contestBy(defender, from, jumping) {
-    let k = THREE.MathUtils.clamp((CONTEST_RANGE - flat(defender, from)) / (CONTEST_RANGE - CONTEST_FULL), 0, 1)
+  function contestBy(defender, from, jumping, range = CONTEST_RANGE, max = CONTEST_MAX) {
+    let k = THREE.MathUtils.clamp((range - flat(defender, from)) / (range - CONTEST_FULL), 0, 1)
     const front = (defender.x - from.x) * (rim.x - from.x) + (defender.z - from.z) * (rim.z - from.z) > 0
     if (!front) k *= 0.3
     else if (jumping && k > 0) k = Math.min(1, k + CONTEST_JUMP)
-    return 1 + CONTEST_MAX * k
+    return 1 + max * k
   }
 
   // ---------- 對手防守 ----------
@@ -342,7 +352,7 @@ export function createDuel({ onScore = () => {}, onMessage = () => {}, onEnd = (
     const player = state.position
     const dRim = flat(rim, p)
     const dPlayer = flat(player, p)
-    if (dRim < 6 && dRim > 2.2 && laneClear(p, player)) {
+    if (dRim < 6 && dRim > 2.2 && laneClear(p, player, GUARD_LANE_HALF_WIDTH)) {
       let name = dPlayer > FOE_DUNK_CLEAR && Math.random() < 0.5 ? 'Dunk' : 'Layup'
       let plan = controls.drivePlan(name, p)
       if (plan === 'near' && name === 'Dunk') {
@@ -405,7 +415,7 @@ export function createDuel({ onScore = () => {}, onMessage = () => {}, onEnd = (
     const from = locals[shot.kind].clone().applyAxisAngle(UP, heading).add(p)
     const player = state.position
     const front = (player.x - p.x) * (rim.x - p.x) + (player.z - p.z) * (rim.z - p.z) > 0
-    const contest = contestBy(player, from, state.jumping)
+    const contest = contestBy(player, from, state.jumping, GUARD_CONTEST_RANGE, GUARD_CONTEST_MAX)
     let velocity
     let scored = false
     if (state.jumping && front && flat(player, p) < BLOCK_RANGE) {
@@ -502,7 +512,8 @@ export function createDuel({ onScore = () => {}, onMessage = () => {}, onEnd = (
       return true
     },
     defending: () => offense === 'foe',
-    cameraAnchor: () => (offense === 'foe' && foe ? foe.root.position : null),
+    faceTarget: () => (offense === 'foe' && foe ? foe.root.position : null),
+    fixedCamera: CAMERA,
   }
 
   return { start, update, result, restart, rules }
