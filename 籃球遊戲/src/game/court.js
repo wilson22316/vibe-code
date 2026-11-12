@@ -103,28 +103,111 @@ function drawCourtTexture(basketZ) {
   return { texture, width, length, center: new THREE.Vector3(0, 0, z0 + length / 2) }
 }
 
-// 籃網：上寬下窄的網子，用交錯的斜線編成菱形格
+// ===== 籃網的晃動可以調整的參數 =====
+// 每個網結像掛在彈簧上：被球推開、拖著走，之後彈回原位。
+const NET = {
+  stiffness: 150, // 拉回原位的力道（越大彈回越快、晃得越急）
+  soften: 0.6, // 越下面的網結越軟：最下面一圈的力道是最上面的 (1 - soften) 倍
+  coupling: 260, // 相鄰網結互相帶動的力道（越大整張網越像一體，晃動會傳開）
+  damping: 4.5, // 阻尼（越大越快停下來）
+  drag: 0.55, // 被球碰到的網結跟著球走的程度（0 不跟、1 完全跟著球的速度）
+  gap: 0.015, // 網結離球面多遠就算碰到（公尺）
+  stretch: 0.2, // 最下面一圈的網結最多被拉離原位多遠（公尺）；越上面越少，最上面固定在籃框上。超過就從球旁邊滑開
+  maxStep: 1 / 120, // 一次最多算多長的時間，再長就拆成幾次（免得彈簧算到爆掉）
+}
+// ====================================
+
+// 籃網：上寬下窄的網子，用交錯的斜線編成菱形格。最上面一圈固定在籃框上，其他網結會被球推動、晃動。
+// 回傳的 LineSegments 的 userData.step(delta, ball) 每格呼叫一次：ball 是場上的球 { p 球心世界座標, v 速度 }，沒有球就給 null
 function createNet(material) {
   const strands = 12
-  const rows = 4
+  const rows = 5
   const top = COURT.RIM_RADIUS - 0.01
-  const bottom = 0.14
+  const bottom = 0.09 // 網子下緣比球（半徑 0.12）窄，球穿過時一定會把網子撐開
   const depth = 0.4
-  const points = []
-  const at = (i, r) => {
-    const k = r / rows
-    const radius = top + (bottom - top) * k
-    const angle = ((i + (r % 2) * 0.5) / strands) * Math.PI * 2
-    return new THREE.Vector3(Math.cos(angle) * radius, -depth * k, Math.sin(angle) * radius)
-  }
-  for (let r = 0; r < rows; r++) {
+  const index = (i, r) => r * strands + ((i % strands) + strands) % strands
+  // 網結：rest 原位、p 現在的位置、v 速度（都是相對籃框中心）、soft 這個網結的彈簧力道
+  const nodes = []
+  for (let r = 0; r <= rows; r++) {
     for (let i = 0; i < strands; i++) {
-      const p = at(i, r)
-      // 下一列錯開半格：偶數列往下接 i、i-1，奇數列接 i、i+1
-      points.push(p, at(i, r + 1), p, at(r % 2 === 0 ? i - 1 : i + 1, r + 1))
+      const k = r / rows
+      const radius = top + (bottom - top) * k
+      const angle = ((i + (r % 2) * 0.5) / strands) * Math.PI * 2
+      const rest = new THREE.Vector3(Math.cos(angle) * radius, -depth * k, Math.sin(angle) * radius)
+      nodes.push({ rest, p: rest.clone(), v: new THREE.Vector3(), fixed: r === 0, soft: NET.stiffness * (1 - NET.soften * k), reach: NET.stretch * k, near: [] })
     }
   }
-  return new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points), material)
+  // 每條線接哪兩個網結。下一列錯開半格：偶數列往下接 i、i-1，奇數列接 i、i+1
+  const links = []
+  for (let r = 0; r < rows; r++) {
+    for (let i = 0; i < strands; i++) {
+      for (const j of [i, r % 2 === 0 ? i - 1 : i + 1]) {
+        const a = index(i, r)
+        const b = index(j, r + 1)
+        links.push(a, b)
+        nodes[a].near.push(nodes[b])
+        nodes[b].near.push(nodes[a])
+      }
+    }
+  }
+  const positions = new Float32Array(links.length * 3)
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  const write = () => {
+    for (let n = 0; n < links.length; n++) nodes[links[n]].p.toArray(positions, n * 3)
+    geometry.attributes.position.needsUpdate = true
+  }
+  write()
+  const net = new THREE.LineSegments(geometry, material)
+  net.frustumCulled = false
+
+  const local = new THREE.Vector3()
+  const push = new THREE.Vector3()
+  const pull = new THREE.Vector3()
+  let still = true
+  function advance(dt, ball) {
+    if (ball) local.copy(ball.p).sub(net.position) // 球心換成相對籃框中心
+    let moving = false
+    for (const node of nodes) {
+      if (node.fixed) continue
+      // 彈回原位＋被相鄰網結帶動（往鄰居們偏移量的平均靠）＋阻尼
+      pull.set(0, 0, 0)
+      for (const other of node.near) pull.add(other.p).sub(other.rest)
+      pull.divideScalar(node.near.length).sub(node.p).add(node.rest).multiplyScalar(NET.coupling)
+      pull.addScaledVector(push.copy(node.rest).sub(node.p), node.soft).addScaledVector(node.v, -NET.damping)
+      node.v.addScaledVector(pull, dt)
+      node.p.addScaledVector(node.v, dt)
+      // 球碰到網結：推到球面外，並且跟著球走一點（球往下穿過時把網子往下、往外帶）
+      if (ball) {
+        push.copy(node.p).sub(local)
+        const reach = ball.radius + NET.gap
+        const d = push.length()
+        if (d < reach) {
+          if (d < 1e-5) push.set(node.rest.x, 0, node.rest.z).normalize()
+          else push.divideScalar(d)
+          node.p.copy(local).addScaledVector(push, reach)
+          node.v.lerp(ball.v, NET.drag)
+        }
+      }
+      // 網線有長度：拉離原位太遠就停在最遠的地方（球繼續往下，網結從旁邊滑開）
+      push.copy(node.p).sub(node.rest)
+      if (push.lengthSq() > node.reach * node.reach) {
+        node.p.copy(node.rest).addScaledVector(push.normalize(), node.reach)
+        node.v.multiplyScalar(0.6)
+      }
+      if (node.v.lengthSq() > 1e-5 || node.p.distanceToSquared(node.rest) > 1e-6) moving = true
+    }
+    return moving
+  }
+  net.userData.step = (delta, ball = null) => {
+    if (still && !ball) return // 沒在晃、也沒有球，不用算
+    const steps = Math.max(1, Math.ceil(delta / NET.maxStep))
+    let moving = false
+    for (let i = 0; i < steps; i++) moving = advance(delta / steps, ball)
+    still = !moving && !ball
+    write()
+  }
+  return net
 }
 
 // 鐵絲網的貼圖：透明底、兩條斜線交叉成菱形格，重複鋪滿
