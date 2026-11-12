@@ -5,6 +5,7 @@
 import * as THREE from 'three'
 import { COURT } from './court.js'
 import { BALL_RADIUS, createBallPhysics } from './ballPhysics.js'
+import { attachFire, createFireGlow } from './fire.js'
 import { MOVE_SPEEDS, NIGHT_BASKET_Z } from '../gallery/scene.js'
 
 // ===== 可以調整的參數 =====
@@ -16,6 +17,17 @@ export const SPRINT_SPEED_SCALE = 1.75
 const BURST_SCALE = 1.45
 const BURST_SECONDS = 0.4
 const BURST_COOLDOWN = 2
+// 體力（1 對 1 才有，rules.stamina）：滿的是 1。突破、跳、抄球、切入各扣一些，隨時間回復（站著回得快）。
+// 低於 STAMINA_LOW 算累了：跑不快、投不準，也不能突破
+const STAMINA_COST = { burst: 0.3, jump: 0.14, steal: 0.1, drive: 0.15, shot: 0.05 }
+const STAMINA_REGEN = 0.09 // 每秒回復（移動中）
+const STAMINA_REGEN_STAND = 0.2 // 每秒回復（站著）
+const STAMINA_LOW = 0.3
+const TIRED_SPEED = 0.8 // 累了的移動速度倍數
+const TIRED_ERROR = 1.6 // 累了的出手誤差倍數
+// 有出界規則時（rules.bounds）：角色可以踩出邊線、底線多遠（踩出去由對戰模式判出界），球滾到線外多遠才彈回來
+const OUT_SLACK = 0.8
+const OUT_BALL_WALL = 2.5
 // 防守輔助（1 對 1 防守時按住 A）：自己滑步跟到防守位置的最快速度（m/s）
 const GUARD_ASSIST_SPEED = 3.2
 // 投籃：仰角（離籃框 2 m 內用 NEAR、6 m 外用 FAR，中間線性變化；近距離弧度太平的話球進框的角度太斜，
@@ -115,10 +127,11 @@ const powerToSpeed = (p) => SHOT_SPEED_MIN + p * (SHOT_SPEED_MAX - SHOT_SPEED_MI
 const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random())
 
 // 力道條位置 power 相對理想力道 ideal 的判定：perfect、good、miss
-export function gradeShot(power, ideal) {
+// zone：判定區寬度的倍數（著火時變寬）
+export function gradeShot(power, ideal, zone = 1) {
   if (ideal === null) return 'miss'
   const d = Math.abs(power - ideal)
-  return d <= PERFECT_ZONE ? 'perfect' : d <= GOOD_ZONE ? 'good' : 'miss'
+  return d <= PERFECT_ZONE * zone ? 'perfect' : d <= GOOD_ZONE * zone ? 'good' : 'miss'
 }
 
 // 出手速度是「理想速度 × 這個比例」：判定區內只有隨機誤差；判定區外再照力道條的位置偏多或偏少
@@ -139,8 +152,19 @@ export const shotSideError = (grade) => THREE.MathUtils.degToRad(gauss() * SHOT_
 //   onBurst() 玩家用了突破、steal() 玩家伸手抄球（回傳有沒有抄到）、defending() 玩家是不是防守方（站著時用防守站姿）、
 //   fixedCamera 固定鏡頭 { position, target }（有給的話鏡頭不跟拍，↑ 固定是往籃框那一端）、
 //   faceTarget() 站著不動時自動面向的位置（防守時面向對手；不用就回傳 null）、
-//   guardSpot() 防守輔助要站的位置（沒持球時按住 A、不按方向鍵，角色自己滑步過去；不能用就回傳 null）
-export function createPracticeControls({ onCharge = () => {}, onShot = () => {}, onResult = () => {}, rules = {} } = {}) {
+//   guardSpot() 防守輔助要站的位置（沒持球時按住 A、不按方向鍵，角色自己滑步過去；不能用就回傳 null）、
+//   canShoot() 現在能不能出手（還沒清球時不行）、onDenied() 不能出手時按了空白鍵、
+//   bounds 有沒有出界規則（有的話角色可以踩出邊線和底線）、onBallOut(by) 球出界了（by 是出手的人）、
+//   zoneScale() 蓄力條判定區寬度的倍數（著火時變寬）、
+//   stamina 有沒有體力限制、accuracy(by) 出手誤差的倍數（著火時小於 1）、onFire(by) 這個人是不是著火了（球帶火光）
+// onSound(name, ...args) 要播音效（名字見 sound.js）
+export function createPracticeControls({
+  onCharge = () => {},
+  onShot = () => {},
+  onResult = () => {},
+  onSound = () => {},
+  rules = {},
+} = {}) {
   let stage = null
   let character = null
   const physics = createBallPhysics(NIGHT_BASKET_Z)
@@ -161,6 +185,17 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   let act = null // { kind, time }
   let burst = 0 // 突破還剩幾秒
   let burstWait = 0 // 突破的冷卻還剩幾秒
+  let stamina = 1
+  let emote = null // 要做的情緒動作（進球後慶祝、被進球後沮喪）；投籃動作做完才開始
+  let ballWasLow = false // 手上的球上一格是不是在地板附近（聽運球聲用）
+  let net = null // 籃網（court.js；每格把場上的球交給它算晃動）
+  const netBall = { p: null, v: null, radius: BALL_RADIUS }
+  let fireGlow = null // 著火時球上的火光（飛行中的球）
+  let fireAura = null // 著火時手上的球和腳邊的火光
+  let clockTime = 0 // 累計的時間（火光閃爍用）
+  const zoneScale = () => rules.zoneScale?.() ?? 1
+  const chargeInfo = () => ({ power, ideal: idealPower(), perfect: PERFECT_ZONE * zoneScale(), good: GOOD_ZONE * zoneScale() })
+  let heard = null // 場上的球上一格的狀態（聽打框、打板、落地用）
   let chargeTime = 0
   let power = 0
   let shotTime = 0
@@ -180,6 +215,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     if (mode !== 'free') return
     if (event.code === 'Space') {
       if (!hasBall) startAct('jump')
+      else if (rules.canShoot?.() === false) rules.onDenied?.()
       else if (driving()) {
         mode = 'drive'
         updateDrive()
@@ -204,6 +240,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   function start(gallery) {
     stage = gallery
     character = stage.getCharacter()
+    net = stage.scene.getObjectByName('Net')
     releaseLocal = stage.sampleBall(CLIPS.shoot, SHOOT_RELEASE)
     for (const [name, drive] of Object.entries(DRIVES)) driveLocal[name] = stage.sampleBall(name, drive.release)
     const ball = stage.getBall()
@@ -211,6 +248,9 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     freeBall.visible = false
     ball.getWorldScale(freeBall.scale)
     stage.scene.add(freeBall)
+    fireGlow = createFireGlow()
+    freeBall.add(fireGlow)
+    fireAura = attachFire(ball, character) // 複製出場上的球之後才掛，免得場上的球多一團
 
     stage.camera.fov = CAMERA.fov
     stage.camera.updateProjectionMatrix()
@@ -231,6 +271,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     speed = 0
     burst = 0
     burstWait = 0
+    emote = null
     freeBall.visible = false
     character.position.copy(position)
     character.rotation.y = facingRim() + (ball ? 0 : Math.PI)
@@ -244,6 +285,49 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     freeBall.visible = false
     shot = null
   }
+
+  // 手上的球被抄走了（對戰模式）。投籃動作中不會被抄
+  function loseBall() {
+    if (mode === 'drive') mode = 'free'
+    hasBall = false
+  }
+
+  // 重播用：記下這一格角色的位置、方向、動作，和兩顆球（手上的、場上的）的狀態
+  function snapshot() {
+    return {
+      x: character.position.x,
+      z: character.position.z,
+      turn: character.rotation.y,
+      clip,
+      time: stage.actionTime(),
+      handBall: stage.getBall().visible,
+      ball: freeBall.visible ? freeBall.position.clone() : null,
+    }
+  }
+
+  // 擺成 a 那一格的樣子（往下一格 b 內插 k）。resume：之後動作照常繼續播（不然停在那一格）
+  function restore(a, b = a, k = 0, resume = false) {
+    const same = b.clip === a.clip && b.time >= a.time
+    character.position.set(a.x + (b.x - a.x) * k, 0, a.z + (b.z - a.z) * k)
+    character.rotation.y = a.turn + wrapAngle(b.turn - a.turn) * k
+    if (a.clip) stage.play(a.clip, 0, resume ? speedScale(a.clip) : 0, same ? a.time + (b.time - a.time) * k : a.time)
+    stage.getBall().visible = a.handBall
+    freeBall.visible = Boolean(a.ball)
+    if (a.ball) freeBall.position.copy(a.ball).lerp(b.ball ?? a.ball, k)
+  }
+
+  // 做一個情緒動作（Celebrate、Frustrated）：投籃、跳躍的動作做完才開始，做的時候不能操控，到下次 reset 為止
+  function playEmote(name) {
+    emote = name
+  }
+
+  // 用掉體力（沒開體力限制就不扣）
+  function spend(kind) {
+    if (rules.stamina) stamina = Math.max(0, stamina - STAMINA_COST[kind])
+  }
+  const tired = () => Boolean(rules.stamina) && stamina < STAMINA_LOW
+  // 出手誤差的倍數：被干擾、累了、著火
+  const shotError = (from) => (rules.contest?.(from) ?? 1) * (tired() ? TIRED_ERROR : 1) * (rules.accuracy?.('you') ?? 1)
 
   // 玩家直接拿到球（抄到對手的球）
   function giveBall() {
@@ -263,7 +347,9 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   // 突破：要按著方向鍵。馬上轉向那個方向，接下來 BURST_SECONDS 秒加速（見 move）
   function startBurst() {
     const dir = inputDirection()
-    if (!dir || burstWait > 0) return
+    if (!dir || burstWait > 0 || tired()) return
+    spend('burst')
+    onSound('squeak')
     burst = BURST_SECONDS
     burstWait = BURST_COOLDOWN
     character.rotation.y = Math.atan2(dir.x, dir.z)
@@ -272,6 +358,8 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
 
   function startAct(kind) {
     mode = 'act'
+    spend(kind)
+    if (kind === 'jump') onSound('jump')
     act = { kind, time: ACTS[kind].from }
     setClip(ACTS[kind].clip, ACT_FADE, act.time)
   }
@@ -361,11 +449,11 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
 
     burst = Math.max(0, burst - delta)
     burstWait = Math.max(0, burstWait - delta)
-    const boost = burst > 0 && hasBall && dir ? BURST_SCALE : 1
+    const boost = (burst > 0 && hasBall && dir ? BURST_SCALE : 1) * (tired() ? TIRED_SPEED : 1)
     let target = MOVE_SPEEDS[clip] ?? 0
     if (typeof target !== 'number') target = 0
     target *= speedScale(clip) * boost
-    if (dir) stage.setTimeScale(speedScale(clip) * boost) // 動作跟著加快，腳才不會打滑
+    if (dir) stage.setTimeScale(speedScale(clip) * boost) // 動作跟著加快（或變慢），腳才不會打滑
     speed += (target - speed) * Math.min(1, delta / SPEED_EASE)
     if (boost > 1) speed = target
     const a = character.rotation.y
@@ -396,8 +484,9 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   // 移動角色，並留在半場內
   function moveBy(dx, dz) {
     const p = character.position
-    p.x = THREE.MathUtils.clamp(p.x + dx, -COURT.HALF_WIDTH + MARGIN, COURT.HALF_WIDTH - MARGIN)
-    p.z = THREE.MathUtils.clamp(p.z + dz, BASELINE_Z + MARGIN, BASELINE_Z + COURT.HALF_LENGTH - MARGIN)
+    const slack = rules.bounds ? OUT_SLACK : -MARGIN // 有出界規則時可以踩出邊線、底線；中線那側一樣擋住
+    p.x = THREE.MathUtils.clamp(p.x + dx, -COURT.HALF_WIDTH - slack, COURT.HALF_WIDTH + slack)
+    p.z = THREE.MathUtils.clamp(p.z + dz, BASELINE_Z - slack, BASELINE_Z + COURT.HALF_LENGTH - MARGIN)
   }
 
   // 角色面向籃框時，出手那一格球的世界座標
@@ -424,6 +513,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     const heading = character.rotation.y
     const drift = speed > MOVING_SPEED ? Math.min(speed * JUMP_DRIFT, JUMP_DRIFT_MAX) : 0
     mode = 'shoot'
+    spend('shot')
     shotTime = JUMP_START
     chargeTime = 0
     power = 0
@@ -444,14 +534,14 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     }
     speed = 0
     setClip(CLIPS.shoot, SHOOT_FADE, shotTime)
-    onCharge({ power, ideal: idealPower(), perfect: PERFECT_ZONE, good: GOOD_ZONE })
+    onCharge(chargeInfo())
   }
 
   // 按住中：力道上升；快到最高點時動作放慢（在空中多停一下），到出手那一格還按著就自動出手（太晚）
   function updateHold(delta) {
     chargeTime += delta
     power = Math.min(1, chargeTime / CHARGE_SECONDS)
-    onCharge({ power, ideal: idealPower(), perfect: PERFECT_ZONE, good: GOOD_ZONE })
+    onCharge(chargeInfo())
     if (shotTime >= SHOOT_RELEASE) letGo(true)
     else stage.setTimeScale(shotTime >= HANG_FROM ? HANG_SCALE : 1)
   }
@@ -459,7 +549,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   // 放開空白鍵（late：按太久自動出手）：這時的力道決定 perfect／good／miss；還沒到出手那一格的話動作快轉過去
   function letGo(late) {
     const ideal = idealPower()
-    const grade = late ? 'miss' : gradeShot(power, ideal)
+    const grade = late ? 'miss' : gradeShot(power, ideal, zoneScale())
     shot.holding = false
     shot.grade = grade
     shot.ratio = shotSpeedRatio(grade, power, ideal)
@@ -530,6 +620,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     shotTime = plan.start
     character.rotation.y = plan.heading
     onShot(name === 'Dunk' ? 'dunk' : 'layup')
+    spend('drive')
     shot = { kind: name, spot: character.position.clone(), air: plan.air, ball: null, from: null, judged: false, judgedAt: 0 }
     speed = 0
     setClip(name, DRIVE_FADE, plan.start)
@@ -552,7 +643,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     } else {
       const angle = shotAngle(from)
       v = physics.bankShotVelocity(from) ?? physics.launchVelocity(from, angle, physics.idealSpeed(from, angle) ?? SHOT_SPEED_MIN)
-      const contest = rules.contest?.(from) ?? 1
+      const contest = shotError(from)
       v.multiplyScalar(1 + gauss() * LAYUP_ERROR.speed * contest)
       v.applyAxisAngle(THREE.Object3D.DEFAULT_UP, THREE.MathUtils.degToRad(gauss() * LAYUP_ERROR.side * contest))
     }
@@ -564,7 +655,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     const from = releasePoint()
     const angle = shotAngle(from)
     const ideal = physics.idealSpeed(from, angle)
-    const contest = rules.contest?.(from) ?? 1
+    const contest = shotError(from)
     const v = physics.launchVelocity(from, angle, (ideal ?? SHOT_SPEED_MAX) * (1 + (shot.ratio - 1) * contest))
     v.applyAxisAngle(THREE.Object3D.DEFAULT_UP, shot.side * contest)
     launchBall(from, v)
@@ -577,6 +668,8 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     shot.spinAxis = new THREE.Vector3(v.x, 0, v.z).normalize().cross(THREE.Object3D.DEFAULT_UP)
     freeBall.position.copy(from)
     freeBall.visible = true
+    fireGlow.visible = Boolean(rules.onFire?.(shot.by ?? 'you'))
+    heard = { rim: false, board: false, bounces: 0 }
     if (!shot.by) shots++
   }
 
@@ -585,12 +678,13 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     shot.judged = true
     shot.judgedAt = shotTime
     if (b.scored && !shot.by) makes++
+    if (b.scored) onSound(shot.kind === 'Dunk' ? 'dunk' : 'swish')
     let message
     if (shot.by) message = b.scored ? '對手進球' : '對手沒進'
     else if (shot.kind === 'Dunk') message = '灌籃！'
     else if (shot.kind === 'Layup') message = b.scored ? '上籃進球！' : '上籃沒進'
     else message = b.scored ? (b.touchedRim || b.touchedBoard ? '進球！' : '空心進球！') : physics.missReason(b, shot.from)
-    onResult({ made: b.scored, message, shots, makes, spot: shot.spot, by: shot.by ?? 'you' })
+    onResult({ made: b.scored, message, shots, makes, spot: shot.spot, by: shot.by ?? 'you', kind: shot.kind })
   }
 
   function updateShot(delta) {
@@ -620,6 +714,7 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     const b = shot.ball
     physics.update(b, delta)
     keepInCourt(b)
+    if (!shot) return
     freeBall.position.copy(b.p)
     if (b.p.y <= BALL_RADIUS + 0.01) {
       const v = Math.hypot(b.v.x, b.v.z)
@@ -627,16 +722,30 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     } else {
       freeBall.rotateOnWorldAxis(shot.spinAxis, -delta * 9)
     }
+    // 打框、打板、落地的聲音：看物理的旗標和彈地次數有沒有變
+    if (b.touchedRim && !heard.rim) onSound('rim')
+    if (b.touchedBoard && !heard.board) onSound('board')
+    if (b.bounces > heard.bounces) onSound('bounce', Math.max(0.3, 1 - 0.2 * b.bounces))
+    heard.rim = b.touchedRim
+    heard.board = b.touchedBoard
+    heard.bounces = b.bounces
     const rimY = physics.rim.y
     const done = b.scored || (b.crossed && b.p.y < rimY - 0.5) || b.age > 3.5 || (b.p.y < 1 && b.v.y < 0 && b.age > 0.6)
     if (!shot.judged && done) judge()
   }
 
   // 球場四周當成有圍欄：球滾出撿球範圍時彈回來
+  // 有出界規則時：球心過了邊線或底線就算出界（通知一次），滾到圍欄前才彈回來
   function keepInCourt(b) {
+    const wall = rules.bounds ? -OUT_BALL_WALL : MARGIN
+    if (rules.bounds && !shot.out && (Math.abs(b.p.x) > COURT.HALF_WIDTH || b.p.z < BASELINE_Z)) {
+      shot.out = true
+      rules.onBallOut?.(shot.by ?? 'you')
+      if (!shot) return // 出界後馬上重新開球了
+    }
     for (const [axis, lo, hi] of [
-      ['x', -COURT.HALF_WIDTH + MARGIN, COURT.HALF_WIDTH - MARGIN],
-      ['z', BASELINE_Z + MARGIN, BASELINE_Z + COURT.HALF_LENGTH - MARGIN],
+      ['x', -COURT.HALF_WIDTH + wall, COURT.HALF_WIDTH - wall],
+      ['z', BASELINE_Z + wall, BASELINE_Z + COURT.HALF_LENGTH - MARGIN],
     ]) {
       if (b.p[axis] < lo || b.p[axis] > hi) {
         b.p[axis] = THREE.MathUtils.clamp(b.p[axis], lo, hi)
@@ -657,6 +766,24 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     shot = null
     hasBall = true
     if (mode === 'free') setClip(inputDirection() ? CLIPS.sprint : CLIPS.stand, PICKUP_FADE)
+  }
+
+  // 運球聲：手上的球（動作裡的球）掉到地板附近的那一格響一聲
+  const ballWorld = new THREE.Vector3()
+  function listenDribble() {
+    const ball = stage.getBall()
+    const low = hasBall && ball.visible && ball.getWorldPosition(ballWorld).y < BALL_RADIUS + 0.06
+    if (low && !ballWasLow) onSound('bounce', 0.7)
+    ballWasLow = low
+  }
+
+  // 情緒動作：輪到它時（投籃、跳躍做完了）開始播，之後停在這個狀態
+  function updateEmote() {
+    if (mode === 'free' && emote) {
+      mode = 'emote'
+      speed = 0
+      setClip(emote, FADE)
+    }
   }
 
   // k：這一格鏡頭往目標移動的比例（1 是直接到位）
@@ -688,15 +815,29 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
   function update(delta, paused) {
     if (!stage || paused) return
     delta = Math.min(delta, 0.1) // 分頁切回來時的第一格可能隔了很久
-    if (mode === 'act') updateAct(delta)
+    updateEmote()
+    const moving = mode !== 'free' || inputDirection()
+    stamina = Math.min(1, stamina + (moving ? STAMINA_REGEN : STAMINA_REGEN_STAND) * delta)
+    if (mode === 'emote') {
+      // 情緒動作中不能操控
+    } else if (mode === 'act') updateAct(delta)
     else if (mode !== 'shoot') move(delta)
     if (mode === 'drive') updateDrive()
     if (mode === 'shoot') updateShot(delta)
     if (shot?.ball) updateLooseBall(delta)
     if (!hasBall) {
       stage.getBall().visible = false // 沒持球時，動作裡的球（例如 Idle 放在腳邊的球）不顯示
-      if (mode !== 'act') tryPickup()
+      if (mode === 'free') tryPickup()
     }
+    listenDribble()
+    // 籃網：場上有球就讓它推網子，沒有球網子自己晃到停
+    if (shot?.ball) {
+      netBall.p = shot.ball.p
+      netBall.v = shot.ball.v
+    }
+    net.userData.step(delta, shot?.ball ? netBall : null)
+    clockTime += delta
+    fireAura(Boolean(rules.onFire?.('you')), clockTime)
     updateCamera(Math.min(1, delta / CAMERA.ease))
   }
 
@@ -706,7 +847,13 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     update,
     reset,
     takeBall,
+    loseBall,
     foeShot,
+    playEmote,
+    snapshot,
+    restore,
+    // 體力回滿（對戰模式新的一場開始時）
+    rest: () => (stamina = 1),
     // 以下給對戰模式的對手用：和玩家同一套物理、出手點、切入路線
     physics,
     rim: physics.rim,
@@ -718,6 +865,9 @@ export function createPracticeControls({ onCharge = () => {}, onShot = () => {},
     state: () => ({
       position: character.position,
       facing: character.rotation.y,
+      stamina,
+      tired: tired(),
+      bursting: burst > 0,
       hasBall,
       shooting: mode === 'shoot' ? shot.kind : null,
       jumping: mode === 'act' && act.kind === 'jump',

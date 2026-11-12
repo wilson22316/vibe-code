@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createGallery } from '../gallery/scene.js'
 import { createHighlightReel } from './highlightReel.js'
 import { DEFAULT_COLORS, KITS, loadColors, saveColors } from './teamColors.js'
+import { loadRecords } from '../game/records.js'
 
 // 主畫面背景：夜晚球場的精華片段（見 highlightReel.js），鏡頭由導播控制；畫面中心往右移，左邊留給選單
 const BACKDROP = { setting: 'night-court', clip: 'Crossover', viewShift: 0.16 }
@@ -22,8 +23,10 @@ const MAIN_ITEMS = [
   { label: '隊伍配色', to: 'colors' },
   { label: '操作說明', to: 'controls' },
 ]
+// 1 對 1 的最高連勝紀錄（有的話顯示在模式選單）
+const best = loadRecords().best
 const MODES = [
-  { label: '1 對 1', note: '半場', play: 'duel' },
+  { label: '1 對 1', note: best ? `半場・最高 ${best} 連勝` : '半場', play: 'duel' },
   { label: '3 對 3', note: '半場', soon: true },
   { label: '5 對 5', note: '全場', soon: true },
 ]
