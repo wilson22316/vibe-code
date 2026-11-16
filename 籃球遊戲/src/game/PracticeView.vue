@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { createGallery } from '../gallery/scene.js'
 import { KITS, loadColors } from '../menu/teamColors.js'
 import { LEVELS, SHOT_CLOCK, WIN_SCORE, createDuel } from './duel.js'
+import { createTeamMatch } from './team.js'
 import { createPracticeControls } from './practice.js'
 import { loadRecords, recordGame, saveLevel } from './records.js'
 import { play as playSound, unlock as unlockSound } from './sound.js'
@@ -65,7 +66,9 @@ function moment(kind) {
 const match = ref({ you: 0, foe: 0, offense: 'you', fire: { you: false, foe: false } })
 const winner = ref(null) // 'you' 或 'foe'（結果畫面跳出來時才設）
 const level = ref(null) // 選好難度才開始；null 時顯示難度選單
-const records = ref(loadRecords())
+const versus = props.mode === 'duel' || props.mode === 'team' // 對戰模式（1 對 1、3 對 3）
+const NAMES = props.mode === 'team' ? ['我隊', '對手'] : ['你', '對手']
+const records = ref(loadRecords(props.mode))
 const summary = ref(null) // 賽後數據：{ stats, seconds, grade, records }
 const shotClock = ref(SHOT_CLOCK)
 const stamina = ref(1)
@@ -92,9 +95,10 @@ function gradeGame(won, stats, margin) {
   return margin >= 3 ? 'A' : 'B'
 }
 
-const duel =
-  props.mode === 'duel'
-    ? createDuel({
+// 1 對 1 用 duel.js、3 對 3 用 team.js，兩個的介面相同（下面都叫 duel）
+const createMatch = props.mode === 'team' ? createTeamMatch : createDuel
+const duel = versus
+  ? createMatch({
         onSound: playSound,
         onScore(value) {
           const wasPoint = gamePoint.value
@@ -117,9 +121,9 @@ const duel =
             stats: JSON.parse(JSON.stringify(stats)),
             seconds: elapsed.value,
             grade: gradeGame(won, stats, match.value.you - match.value.foe),
-            records: recordGame(won, elapsed.value),
+            records: recordGame(won, elapsed.value, props.mode),
           }
-          records.value = loadRecords()
+          records.value = loadRecords(props.mode)
           endWinner = who // 慢動作結束後開始重播，重播完才跳出結果（見 frame）
         },
       })
@@ -153,7 +157,7 @@ function foeColors() {
 // 選難度後開始（一開始，以及結果畫面的「再來一場」）
 function startGame(name) {
   level.value = name
-  saveLevel(name)
+  saveLevel(name, props.mode)
   duel.setLevel(name)
   winner.value = null
   summary.value = null
@@ -223,6 +227,7 @@ function runReplay(delta) {
   const k = b.t > a.t ? Math.min(1, Math.max(0, (replay.t - a.t) / (b.t - a.t))) : 0
   controls.restore(a.you, b.you, k)
   duel.restore(a.foe, b.foe, k)
+  controls.replayNet(delta * REPLAY.speed) // 籃網照重播的球再晃一次
   court.camera.position.set(...replay.camera)
   court.camera.lookAt(...replay.look)
   if (replay.t >= tape[tape.length - 1].t) endReplay()
@@ -297,7 +302,7 @@ onMounted(() => {
     () => {
       status.value = ''
       controls.start(court)
-      duel?.start(court, controls, foeColors())
+      duel?.start(court, controls, foeColors(), loadColors())
     },
     (err) => {
       status.value = `模型載入失敗：${err.message ?? err}`
@@ -324,7 +329,7 @@ onBeforeUnmount(() => {
   <!-- 1 對 1 的計分板：仿室內 LED 計分板（隊名、分數、球權箭頭、時間）；犯規、暫停、節次之後 5 對 5 再加 -->
   <div v-if="duel" class="board" :class="{ point: gamePoint }" aria-hidden="true">
     <div class="side">
-      <span class="name" :class="{ fire: match.fire.you }">你</span>
+      <span class="name" :class="{ fire: match.fire.you }">{{ NAMES[0] }}</span>
       <span class="led score" data-ghost="88">{{ match.you }}</span>
     </div>
     <div class="middle">
@@ -336,7 +341,7 @@ onBeforeUnmount(() => {
       <span class="goal" :class="{ clear: match.clear }">{{ boardNote }}</span>
     </div>
     <div class="side">
-      <span class="name" :class="{ fire: match.fire.foe }">對手</span>
+      <span class="name" :class="{ fire: match.fire.foe }">{{ NAMES[1] }}</span>
       <span class="led score" data-ghost="88">{{ match.foe }}</span>
     </div>
   </div>
@@ -367,6 +372,7 @@ onBeforeUnmount(() => {
     <span><kbd>空白鍵</kbd> 沒球時跳起來搶籃板<template v-if="duel">、封蓋</template></span>
     <span v-if="duel"><kbd>A</kbd> 防守時按住自動跟防</span>
     <span v-if="duel"><kbd>D</kbd> 抄球（防守時）</span>
+    <span v-if="mode === 'team'"><kbd>F</kbd> 傳球（按著方向鍵選隊友）</span>
     <span><kbd>Esc</kbd> 暫停</span>
     <span><kbd>V</kbd> 顯示／隱藏操作說明</span>
   </div>
@@ -396,9 +402,9 @@ onBeforeUnmount(() => {
   <div v-else-if="winner && summary" class="pause">
     <section class="panel">
       <h2>{{ winner === 'you' ? '獲勝！' : '落敗…' }}<b class="rank" :class="summary.grade">{{ summary.grade }}</b></h2>
-      <p class="summary">你 {{ match.you }} : {{ match.foe }} 對手・{{ LEVELS[level].label }}・{{ seconds(summary.seconds) }}</p>
+      <p class="summary">{{ NAMES[0] }} {{ match.you }} : {{ match.foe }} {{ NAMES[1] }}・{{ LEVELS[level].label }}・{{ seconds(summary.seconds) }}</p>
       <table class="numbers">
-        <thead><tr><th></th><th>你</th><th>對手</th></tr></thead>
+        <thead><tr><th></th><th>{{ NAMES[0] }}</th><th>{{ NAMES[1] }}</th></tr></thead>
         <tbody>
           <tr><th>投籃</th><td>{{ summary.stats.you.makes }}/{{ summary.stats.you.shots }}</td><td>{{ summary.stats.foe.makes }}/{{ summary.stats.foe.shots }}</td></tr>
           <tr><th>命中率</th><td>{{ rate(summary.stats.you) }}</td><td>{{ rate(summary.stats.foe) }}</td></tr>

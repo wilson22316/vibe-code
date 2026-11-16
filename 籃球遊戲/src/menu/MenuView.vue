@@ -24,10 +24,11 @@ const MAIN_ITEMS = [
   { label: '操作說明', to: 'controls' },
 ]
 // 1 對 1 的最高連勝紀錄（有的話顯示在模式選單）
-const best = loadRecords().best
+const best = loadRecords('duel').best
+const teamBest = loadRecords('team').best
 const MODES = [
   { label: '1 對 1', note: best ? `半場・最高 ${best} 連勝` : '半場', play: 'duel' },
-  { label: '3 對 3', note: '半場', soon: true },
+  { label: '3 對 3', note: teamBest ? `半場・最高 ${teamBest} 連勝` : '半場', play: 'team' },
   { label: '5 對 5', note: '全場', soon: true },
 ]
 // 按鍵配置；投籃、傳球還沒做好（見 TODO.md）
@@ -35,8 +36,7 @@ const KEYS = [
   ['方向鍵', '移動'],
   ['A', '突破（按著方向鍵時爆發加速）'],
   ['空白鍵', '投籃（按住蓄力、放開出手；衝到籃下自動上籃或灌籃）'],
-  ['D', '請隊友傳球'],
-  ['F', '傳球'],
+  ['F', '傳球（3 對 3，按著方向鍵選隊友）'],
   ['空白鍵（沒持球時）', '跳起封阻、搶籃板'],
   ['A（防守時）', '按住自動跟防（放開方向鍵）'],
   ['D（防守時）', '抄球'],

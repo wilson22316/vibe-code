@@ -120,6 +120,9 @@ const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * M
 const flat = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
 
 // 站在 position 出手算不算三分線外（街頭規則的 2 分）
+// 1 對 1、3 對 3 共用的固定鏡頭
+export const FIXED_CAMERA = CAMERA
+
 export function beyondArc(position, rim) {
   return Math.hypot(position.x - rim.x, position.z - rim.z) > COURT.THREE_RADIUS || Math.abs(position.x) > COURT.THREE_SIDE
 }
@@ -552,7 +555,10 @@ export function createDuel({
       const angle = controls.shotAngle(from)
       const ideal = physics.idealSpeed(from, angle) ?? 9
       const error = shot.kind === 'Layup' ? LAYUP_ERROR : L.shotError
-      velocity = (shot.kind === 'Layup' && physics.bankShotVelocity(from)) || physics.launchVelocity(from, angle, ideal)
+      // 上籃打板；跳投在籃下也會打板（practice.js 的 aimVelocity）
+      velocity =
+        (shot.kind === 'Layup' ? physics.bankShotVelocity(from) : controls.aimVelocity(from)) ||
+        physics.launchVelocity(from, angle, ideal)
       const k = contest * rules.accuracy('foe')
       velocity.multiplyScalar(1 + gauss() * error.speed * k)
       velocity.applyAxisAngle(UP, THREE.MathUtils.degToRad(gauss() * error.side * k))
@@ -560,7 +566,7 @@ export function createDuel({
     shot.released = true
     foeBall.visible = false
     looseFor = 0
-    controls.foeShot({ kind: shot.kind, spot: shot.spot, from, velocity, scored })
+    controls.foeShot({ by: 'foe', kind: shot.kind, spot: shot.spot, from, velocity, scored })
   }
 
   // 玩家或對手每投一球的結果（practice.js 的 onResult）。回傳這球得幾分
