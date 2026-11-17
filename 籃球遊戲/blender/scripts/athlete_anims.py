@@ -1970,8 +1970,162 @@ def make_frustrated(P):
         P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
 
 
+STEAL = dict(LOAD=2, REACH=6, SWIPE=9, RECOVER=13, END=18)
+
+
+def make_steal(P):
+    """抄截（單次 18 格）：從 Idle 接起，快速壓低重心、左腳前跨並扭腰，右手往前斜下方快拍撥球，
+    第 6～9 格掃過球面，之後收腳回到 Idle 站姿。原地動作，無球。"""
+    S = STEAL
+    P.new_action("Steal")
+    P.hinge_roll[".L"], P.hinge_roll[".R"] = HINGE_ROLL_L, HINGE_ROLL_R
+    Z = P.Z
+    R0, L0 = P.ankle_rest(".R"), P.ankle_rest(".L")
+    aR_low = R0 + V((-0.12, 0.05, 0))
+    aL_lunge = L0 + V((0.08, -0.20, 0))
+
+    def feet(f):
+        if f <= S["LOAD"]:
+            u = ease(f / S["LOAD"])
+            return R0.lerp(aR_low, u), L0
+        if f <= S["REACH"]:
+            u = ease((f - S["LOAD"]) / (S["REACH"] - S["LOAD"]))
+            h = 0.04 * math.sin(math.pi * u)
+            return aR_low, L0.lerp(aL_lunge, u) + V((0, 0, h))
+        if f <= S["SWIPE"]:
+            return aR_low, aL_lunge
+        u = ease((f - S["SWIPE"]) / (S["END"] - S["SWIPE"]))
+        h = 0.04 * math.sin(math.pi * u)
+        return aR_low.lerp(R0, u), aL_lunge.lerp(L0, u) + V((0, 0, h))
+
+    hipsK = [(0, V((0, 0, -0.012))), (S["LOAD"], V((0, 0.02, -0.18))), (S["REACH"], V((0.04, -0.09, -0.24))),
+             (S["SWIPE"], V((0.05, -0.08, -0.22))), (S["RECOVER"], V((0.01, 0.01, -0.14))), (S["END"], V((0, 0, -0.012)))]
+    leanK = [(0, V((0, 0, 0))), (S["LOAD"], V((0.18, 0.08, 0.03))), (S["REACH"], V((0.24, 0.12, 0.06))),
+             (S["SWIPE"], V((0.22, 0.12, 0.06))), (S["RECOVER"], V((0.10, 0.05, 0.02))), (S["END"], V((0, 0, 0)))]
+    headK = [(0, 0.02), (S["LOAD"], -0.22), (S["REACH"], -0.28), (S["SWIPE"], -0.26), (S["END"], 0.02)]
+    twistK = [(0, 0.0), (S["LOAD"], -0.12), (S["REACH"], 0.36), (S["SWIPE"], 0.44), (S["RECOVER"], 0.14), (S["END"], 0.0)]
+
+    idleR, idleL = V((-0.215, -0.03, 0.85)), V((0.215, -0.03, 0.85))
+    wRK = [(0, idleR), (S["LOAD"], V((-0.32, -0.08, 0.90))), (S["REACH"], V((-0.10, -0.60, 0.86))),
+           (S["SWIPE"], V((0.12, -0.54, 0.78))), (S["RECOVER"], V((-0.26, -0.24, 0.86))), (S["END"], idleR)]
+    wLK = [(0, idleL), (S["LOAD"], V((0.28, -0.14, 0.96))), (S["REACH"], V((0.36, 0.02, 0.94))),
+           (S["SWIPE"], V((0.36, 0.04, 0.94))), (S["RECOVER"], V((0.26, -0.08, 0.90))), (S["END"], idleL)]
+    poleRK = [(0, V((-0.35, 1.0, -0.25))), (S["LOAD"], V((-0.45, 0.7, -0.45))), (S["REACH"], V((-0.45, 0.35, -0.70))),
+              (S["SWIPE"], V((-0.35, 0.25, -0.80))), (S["END"], V((-0.35, 1.0, -0.25)))]
+    poleLK = [(0, V((0.35, 1.0, -0.25))), (S["REACH"], V((0.45, 0.75, -0.40))), (S["END"], V((0.35, 1.0, -0.25)))]
+
+    P.pose("ST_end", hipsK[0][1], tuple(leanK[0][1]), headK[0][1], idleR + Z, idleL + Z, R0, L0,
+           poleR=poleRK[0][1], poleL=poleLK[0][1])
+    idle_qR = P.wrist_local("hand.R")
+
+    for f in range(S["END"] + 1):
+        pts = spline_pts if f > S["SWIPE"] else smooth_pts
+        aR, aL = feet(f)
+        P.pose(f"ST{f}", pts(f, hipsK), tuple(pts(f, leanK)), pts(f, headK),
+               pts(f, wRK) + Z, pts(f, wLK) + Z, aR, aL,
+               poleR=pts(f, poleRK), poleL=pts(f, poleLK), twist=pts(f, twistK))
+        P.palm_inward(".L")
+        k_swipe = ease(min(1.0, f / S["LOAD"], max(0.0, (S["END"] - f) / (S["END"] - S["SWIPE"]))))
+        foreR = P.pb["forearm.R"].matrix.col[1].to_3d()
+        P.palm("hand.R", foreR, natural_palm(P, ".R"))
+        q_nat = P.wrist_local("hand.R")
+        swipe_dir = V((0.35, -0.88, -0.22)) if f >= S["REACH"] else V((0.10, -0.96, -0.10))
+        P.palm("hand.R", swipe_dir, V((0.62, -0.35, -0.70)))
+        q_sw = P.wrist_local("hand.R")
+        P.set_wrist_local("hand.R", slerp_short(idle_qR.slerp(q_nat, 0.5), q_sw, k_swipe))
+        P.limit_wrist("hand.R")
+        P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
+
+
+BLK = dict(LOAD=5, TAKEOFF=7, PEAK=13, SWAT=15, LAND=19, ABSORB=22, END=26)
+BLK_HEIGHT = 0.44
+
+
+def make_block(P):
+    """蓋火鍋（單次 26 格）：從 Idle 接起，快速屈膝蓄力（第 5 格）、第 7 格雙腳起跳，
+    右手高舉伸直、左手收在胸腹側保持平衡，第 13～15 格在最高點往前下方揮拍封蓋，
+    第 19 格落地緩衝、第 26 格回到 Idle。原地動作，無球。"""
+    B = BLK
+    P.new_action("Block")
+    P.hinge_roll[".L"] = HINGE_ROLL_L
+    Z = P.Z
+    R0, L0 = P.ankle_rest(".R"), P.ankle_rest(".L")
+    aR_load = R0 + V((-0.08, 0.04, 0))
+    aL_load = L0 + V((0.08, -0.04, 0))
+
+    def jump(f):
+        if not B["TAKEOFF"] <= f <= B["LAND"]:
+            return 0.0
+        u = (f - B["TAKEOFF"]) / (B["LAND"] - B["TAKEOFF"])
+        return 4 * BLK_HEIGHT * u * (1 - u)
+
+    def feet(f):
+        J = V((0, 0, jump(f)))
+        if f <= B["TAKEOFF"]:
+            u = ease(f / B["TAKEOFF"])
+            return R0.lerp(aR_load, u), L0.lerp(aL_load, u), 0.0
+        if f >= B["LAND"]:
+            u = ease((f - B["LAND"]) / (B["END"] - B["LAND"]))
+            return aR_load.lerp(R0, u), aL_load.lerp(L0, u), 0.0
+        u = (f - B["TAKEOFF"]) / (B["LAND"] - B["TAKEOFF"])
+        tuck = V((0, 0, 0.07 * math.sin(math.pi * u)))
+        toe = 0.55 * math.sin(math.pi * min(1.0, u * 1.3))
+        return aR_load + J + tuck, aL_load + J + tuck, toe
+
+    hipsK = [(0, V((0, 0, -0.012))), (B["LOAD"], V((0, 0.04, -0.24))), (B["TAKEOFF"], V((0, 0.01, -0.06))),
+             (B["PEAK"], V((0, -0.02, -0.02))), (B["SWAT"], V((0, -0.03, -0.03))), (B["LAND"], V((0, 0.02, -0.10))),
+             (B["ABSORB"], V((0, 0.04, -0.22))), (B["END"], V((0, 0, -0.012)))]
+    leanK = [(0, V((0, 0, 0))), (B["LOAD"], V((0.20, 0.09, 0.04))), (B["TAKEOFF"], V((0.04, 0.02, 0.0))),
+             (B["PEAK"], V((-0.02, 0.01, 0.0))), (B["SWAT"], V((0.06, 0.04, 0.02))), (B["ABSORB"], V((0.16, 0.08, 0.04))),
+             (B["END"], V((0, 0, 0)))]
+    headK = [(0, 0.02), (B["LOAD"], -0.20), (B["PEAK"], -0.26), (B["SWAT"], -0.18), (B["END"], 0.02)]
+    twistK = [(0, 0.0), (B["LOAD"], -0.08), (B["PEAK"], 0.18), (B["SWAT"], 0.24), (B["LAND"], 0.06), (B["END"], 0.0)]
+
+    idleR, idleL = V((-0.215, -0.03, 0.85)), V((0.215, -0.03, 0.85))
+    wRK = [(0, idleR), (B["LOAD"], V((-0.28, 0.06, 0.88))), (B["TAKEOFF"], V((-0.22, -0.22, 1.24))),
+           (B["PEAK"], V((-0.14, -0.32, 1.92))), (B["SWAT"], V((-0.08, -0.50, 1.72))),
+           (B["LAND"], V((-0.22, -0.34, 1.18))), (B["ABSORB"], V((-0.25, -0.22, 0.96))), (B["END"], idleR)]
+    wLK = [(0, idleL), (B["LOAD"], V((0.26, -0.10, 0.88))), (B["PEAK"], V((0.30, -0.18, 1.22))),
+           (B["SWAT"], V((0.32, -0.10, 1.18))), (B["ABSORB"], V((0.26, -0.12, 0.94))), (B["END"], idleL)]
+    poleRK = [(0, V((-0.35, 1.0, -0.25))), (B["LOAD"], V((-0.35, 0.8, -0.45))), (B["TAKEOFF"], V((-0.32, -0.4, -0.75))),
+              (B["PEAK"], V((-0.26, -0.78, -0.42))), (B["SWAT"], V((-0.25, -0.72, -0.52))),
+              (B["LAND"], V((-0.35, -0.2, -0.9))), (B["END"], V((-0.35, 1.0, -0.25)))]
+    poleLK = [(0, V((0.35, 1.0, -0.25))), (B["PEAK"], V((0.55, 0.45, -0.65))), (B["END"], V((0.35, 1.0, -0.25)))]
+    fore_rollK = [(0, -87.0), (B["LOAD"], -87.0), (11, -18.0), (18, -18.0), (23, -87.0)]
+
+    P.pose("BL_end", hipsK[0][1], tuple(leanK[0][1]), headK[0][1], idleR + Z, idleL + Z, R0, L0,
+           poleR=poleRK[0][1], poleL=poleLK[0][1])
+    idle_qR = P.wrist_local("hand.R")
+
+    for f in range(B["END"] + 1):
+        J = V((0, 0, jump(f)))
+        pts = spline_pts if f >= B["PEAK"] else smooth_pts
+        P.hinge_roll[".R"] = (-120, smooth_pts(f, fore_rollK))
+        aR, aL, toe = feet(f)
+        P.pose(f"BL{f}", pts(f, hipsK) + J, tuple(pts(f, leanK)), pts(f, headK),
+               pts(f, wRK) + J + Z, pts(f, wLK) + J + Z, aR, aL,
+               poleR=pts(f, poleRK), poleL=pts(f, poleLK), footR=toe, footL=toe, twist=pts(f, twistK))
+        P.palm_inward(".L")
+        k_up = ease(min(1.0, max(0.0, (f - B["LOAD"]) / (B["PEAK"] - B["LOAD"])),
+                        max(0.0, (B["END"] - f) / (B["END"] - B["LAND"]))))
+        if f < B["PEAK"]:
+            hand_dir, hand_to = V((0.0, -0.35, 0.94)), V((0.0, -0.94, -0.35))
+        elif f <= B["SWAT"]:
+            u = ease((f - B["PEAK"]) / (B["SWAT"] - B["PEAK"]))
+            hand_dir = V((0.0, -0.35, 0.94)).lerp(V((0.0, -0.92, -0.38)), u)
+            hand_to = V((0.0, -0.94, -0.35)).lerp(V((0.0, 0.0, -1.0)), u)
+        else:
+            hand_dir, hand_to = V((0.0, -0.92, -0.38)), V((0.0, 0.0, -1.0))
+        P.palm("hand.R", hand_dir, hand_to)
+        q_blk = P.wrist_local("hand.R")
+        P.set_wrist_local("hand.R", slerp_short(idle_qR, q_blk, k_up))
+        P.limit_wrist("hand.R")
+        P.key(f + 1, V((-0.30, -0.40, 0.80)) + Z, 0.0)
+
+
 CLIPS = ("Idle", "Dribble", "Shoot", "Sprint", "TripleThreat", "DribbleWalk", "Jog", "Run", "StopJump", "SetShot",
-         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound", "Crossover", "BetweenLegs", "Dunk", "Celebrate", "Frustrated")
+         "Layup", "Pass", "Catch", "Defense", "DefenseSlide", "Rebound", "Steal", "Block",
+         "Crossover", "BetweenLegs", "Dunk", "Celebrate", "Frustrated")
 
 
 def build_all(rig, ball, off, scale):
@@ -1999,6 +2153,8 @@ def build_all(rig, ball, off, scale):
     make_defense(P)
     make_defense_slide(P)
     make_rebound(P)
+    make_steal(P)
+    make_block(P)
     make_crossover(P)
     make_between_legs(P)
     make_dunk(P)
