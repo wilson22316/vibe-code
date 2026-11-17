@@ -2,12 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { createGallery } from '../gallery/scene.js'
 import { KITS, loadColors } from '../menu/teamColors.js'
-import { LEVELS, SHOT_CLOCK, WIN_SCORE, createDuel } from './duel.js'
+import { FIXED_CAMERA, LEVELS, SHOT_CLOCK, WIN_SCORE, createDuel } from './duel.js'
+import { createTeamMatch } from './team.js'
 import { createPracticeControls } from './practice.js'
 import { loadRecords, recordGame, saveLevel } from './records.js'
 import { play as playSound, unlock as unlockSound } from './sound.js'
 
-// 練習模式：夜晚半場，方向鍵移動、按住 A 衝刺、按下空白鍵起跳、按住加力道、放開出手（見 practice.js）。Esc 暫停。
+// 練習模式：夜晚半場，操控和 1 對 1 相同（見 practice.js），鏡頭、體力也一樣（PRACTICE_RULES），只是沒有對手、不計分。Esc 暫停。
 // mode 是 'duel' 時是 1 對 1：操控相同，場上多一個 AI 對手，輪流進攻、計分（見 duel.js）。
 const props = defineProps({ mode: { type: String, default: 'practice' } })
 const emit = defineEmits(['exit'])
@@ -15,7 +16,7 @@ const emit = defineEmits(['exit'])
 const stage = ref(null)
 const status = ref('載入中…')
 const paused = ref(false)
-const showHint = ref(true) // 左上角的操作說明，按 V 切換
+const showHint = ref(true) // 左上角的操作說明，按 R 切換
 const charge = ref(null) // 蓄力中：{ power, ideal, perfect, good }（0～1）
 const stats = ref({ shots: 0, makes: 0 })
 const toast = ref(null) // { message, made }
@@ -55,9 +56,11 @@ function showBanner(text, kind = '') {
 // 慢動作和鏡頭震動（在 onFrame 裡套用）
 let slowScale = 1
 let slowLeft = 0
+let hitStopLeft = 0
 let shake = 0
 function moment(kind) {
   ;[slowScale, slowLeft] = SLOW[kind]
+  if (kind === 'block') hitStopLeft = 0.055
   shake = Math.max(shake, SHAKE[kind])
 }
 
@@ -65,7 +68,9 @@ function moment(kind) {
 const match = ref({ you: 0, foe: 0, offense: 'you', fire: { you: false, foe: false } })
 const winner = ref(null) // 'you' 或 'foe'（結果畫面跳出來時才設）
 const level = ref(null) // 選好難度才開始；null 時顯示難度選單
-const records = ref(loadRecords())
+const versus = props.mode === 'duel' || props.mode === 'team' // 對戰模式（1 對 1、3 對 3）
+const NAMES = props.mode === 'team' ? ['我隊', '對手'] : ['你', '對手']
+const records = ref(loadRecords(props.mode))
 const summary = ref(null) // 賽後數據：{ stats, seconds, grade, records }
 const shotClock = ref(SHOT_CLOCK)
 const stamina = ref(1)
@@ -92,9 +97,10 @@ function gradeGame(won, stats, margin) {
   return margin >= 3 ? 'A' : 'B'
 }
 
-const duel =
-  props.mode === 'duel'
-    ? createDuel({
+// 1 對 1 用 duel.js、3 對 3 用 team.js，兩個的介面相同（下面都叫 duel）
+const createMatch = props.mode === 'team' ? createTeamMatch : createDuel
+const duel = versus
+  ? createMatch({
         onSound: playSound,
         onScore(value) {
           const wasPoint = gamePoint.value
@@ -117,16 +123,19 @@ const duel =
             stats: JSON.parse(JSON.stringify(stats)),
             seconds: elapsed.value,
             grade: gradeGame(won, stats, match.value.you - match.value.foe),
-            records: recordGame(won, elapsed.value),
+            records: recordGame(won, elapsed.value, props.mode),
           }
-          records.value = loadRecords()
+          records.value = loadRecords(props.mode)
           endWinner = who // 慢動作結束後開始重播，重播完才跳出結果（見 frame）
         },
       })
     : null
 
+// 練習模式沒有對手，但鏡頭、體力和 1 對 1 一樣（固定鏡頭、突破和跳會耗體力），手感才不會兩邊不同
+const PRACTICE_RULES = { fixedCamera: FIXED_CAMERA, stamina: true }
+
 const controls = createPracticeControls({
-  rules: duel?.rules,
+  rules: duel?.rules ?? PRACTICE_RULES,
   onSound: playSound,
   onCharge(value) {
     charge.value = value
@@ -153,7 +162,7 @@ function foeColors() {
 // 選難度後開始（一開始，以及結果畫面的「再來一場」）
 function startGame(name) {
   level.value = name
-  saveLevel(name)
+  saveLevel(name, props.mode)
   duel.setLevel(name)
   winner.value = null
   summary.value = null
@@ -223,6 +232,7 @@ function runReplay(delta) {
   const k = b.t > a.t ? Math.min(1, Math.max(0, (replay.t - a.t) / (b.t - a.t))) : 0
   controls.restore(a.you, b.you, k)
   duel.restore(a.foe, b.foe, k)
+  controls.replayNet(delta * REPLAY.speed) // 籃網照重播的球再晃一次
   court.camera.position.set(...replay.camera)
   court.camera.lookAt(...replay.look)
   if (replay.t >= tape[tape.length - 1].t) endReplay()
@@ -247,7 +257,10 @@ function frame(delta) {
   }
   const waiting = paused.value || (duel && !level.value) // 暫停中，或還沒選難度
   let scale = 1
-  if (slowLeft > 0 && !waiting) {
+  if (hitStopLeft > 0 && !waiting) {
+    hitStopLeft -= delta
+    scale = 0
+  } else if (slowLeft > 0 && !waiting) {
     slowLeft -= delta
     scale = slowScale
   }
@@ -261,7 +274,11 @@ function frame(delta) {
     p.y += (Math.random() - 0.5) * shake
     shake *= Math.exp(-SHAKE_DECAY * delta)
   }
-  if (!duel || waiting) return
+  if (waiting) return
+  const state = controls.state()
+  if (Math.abs(state.stamina - stamina.value) > 0.01) stamina.value = state.stamina
+  if (state.tired !== tired.value) tired.value = state.tired
+  if (!duel) return
   if (!winner.value) record(step)
   if (endWinner && !winner.value && slowLeft <= 0) {
     startReplay()
@@ -270,17 +287,17 @@ function frame(delta) {
   if (!ended) elapsed.value += Math.min(step, 0.1)
   const left = Math.ceil(duel.shotClock())
   if (left !== shotClock.value) shotClock.value = left
-  const state = controls.state()
-  if (Math.abs(state.stamina - stamina.value) > 0.01) stamina.value = state.stamina
-  if (state.tired !== tired.value) tired.value = state.tired
 }
 
 function onKey(event) {
   unlockSound() // 瀏覽器要等按過鍵才准發聲
-  if (event.code === 'KeyV' && !event.repeat) showHint.value = !showHint.value
+  if (event.code === 'KeyR' && !event.repeat) showHint.value = !showHint.value
   if (replay) {
     if (event.code === 'Space' || event.code === 'Enter') endReplay()
     return
+  }
+  if (event.code === 'KeyV' && !event.repeat && !status.value && !paused.value && !(duel && !level.value)) {
+    showToast(`視角：${controls.nextView()}`, false)
   }
   if (event.key === 'Escape') setPaused(!paused.value)
 }
@@ -297,7 +314,7 @@ onMounted(() => {
     () => {
       status.value = ''
       controls.start(court)
-      duel?.start(court, controls, foeColors())
+      duel?.start(court, controls, foeColors(), loadColors())
     },
     (err) => {
       status.value = `模型載入失敗：${err.message ?? err}`
@@ -324,7 +341,7 @@ onBeforeUnmount(() => {
   <!-- 1 對 1 的計分板：仿室內 LED 計分板（隊名、分數、球權箭頭、時間）；犯規、暫停、節次之後 5 對 5 再加 -->
   <div v-if="duel" class="board" :class="{ point: gamePoint }" aria-hidden="true">
     <div class="side">
-      <span class="name" :class="{ fire: match.fire.you }">你</span>
+      <span class="name" :class="{ fire: match.fire.you }">{{ NAMES[0] }}</span>
       <span class="led score" data-ghost="88">{{ match.you }}</span>
     </div>
     <div class="middle">
@@ -336,7 +353,7 @@ onBeforeUnmount(() => {
       <span class="goal" :class="{ clear: match.clear }">{{ boardNote }}</span>
     </div>
     <div class="side">
-      <span class="name" :class="{ fire: match.fire.foe }">對手</span>
+      <span class="name" :class="{ fire: match.fire.foe }">{{ NAMES[1] }}</span>
       <span class="led score" data-ghost="88">{{ match.foe }}</span>
     </div>
   </div>
@@ -358,7 +375,7 @@ onBeforeUnmount(() => {
   </div>
   <p v-if="grade" class="grade" :class="grade">{{ GRADE_LABELS[grade] }}</p>
 
-  <!-- 操作說明：左上角、一個按鍵一列，按 V 顯示或隱藏（載入中的訊息也在左上角，那時先不顯示） -->
+  <!-- 操作說明：左上角、一個按鍵一列，按 R 顯示或隱藏（載入中的訊息也在左上角，那時先不顯示） -->
   <div v-if="showHint && !status" class="hint" aria-hidden="true">
     <span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移動</span>
     <span><kbd>A</kbd> 突破（加方向鍵）</span>
@@ -367,15 +384,18 @@ onBeforeUnmount(() => {
     <span><kbd>空白鍵</kbd> 沒球時跳起來搶籃板<template v-if="duel">、封蓋</template></span>
     <span v-if="duel"><kbd>A</kbd> 防守時按住自動跟防</span>
     <span v-if="duel"><kbd>D</kbd> 抄球（防守時）</span>
+    <span v-if="mode === 'team'"><kbd>F</kbd> 傳球（按著方向鍵選隊友）</span>
+    <span><kbd>左鍵拖曳</kbd> 旋轉視角・<kbd>滾輪</kbd> 縮放</span>
+    <span><kbd>V</kbd> 切換視角</span>
     <span><kbd>Esc</kbd> 暫停</span>
-    <span><kbd>V</kbd> 顯示／隱藏操作說明</span>
+    <span><kbd>R</kbd> 顯示／隱藏操作說明</span>
   </div>
 
   <p v-if="banner" class="banner" :class="banner.kind">{{ banner.text }}</p>
   <p v-if="replaying" class="replay">● REPLAY<small>空白鍵跳過</small></p>
 
   <!-- 體力條：突破、跳、抄球、切入會用掉，太低時變紅（跑不快、投不準、不能突破） -->
-  <div v-if="duel && level" class="stamina" :class="{ tired }" aria-hidden="true">
+  <div v-if="!status && (!duel || level)" class="stamina" :class="{ tired }" aria-hidden="true">
     <span>體力</span>
     <div class="bar"><div class="fill" :style="{ width: percent(stamina) }"></div></div>
   </div>
@@ -396,9 +416,9 @@ onBeforeUnmount(() => {
   <div v-else-if="winner && summary" class="pause">
     <section class="panel">
       <h2>{{ winner === 'you' ? '獲勝！' : '落敗…' }}<b class="rank" :class="summary.grade">{{ summary.grade }}</b></h2>
-      <p class="summary">你 {{ match.you }} : {{ match.foe }} 對手・{{ LEVELS[level].label }}・{{ seconds(summary.seconds) }}</p>
+      <p class="summary">{{ NAMES[0] }} {{ match.you }} : {{ match.foe }} {{ NAMES[1] }}・{{ LEVELS[level].label }}・{{ seconds(summary.seconds) }}</p>
       <table class="numbers">
-        <thead><tr><th></th><th>你</th><th>對手</th></tr></thead>
+        <thead><tr><th></th><th>{{ NAMES[0] }}</th><th>{{ NAMES[1] }}</th></tr></thead>
         <tbody>
           <tr><th>投籃</th><td>{{ summary.stats.you.makes }}/{{ summary.stats.you.shots }}</td><td>{{ summary.stats.foe.makes }}/{{ summary.stats.foe.shots }}</td></tr>
           <tr><th>命中率</th><td>{{ rate(summary.stats.you) }}</td><td>{{ rate(summary.stats.foe) }}</td></tr>

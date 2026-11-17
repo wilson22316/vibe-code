@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
-import { NIGHT_GROUND, createCityWall, createFloodlights, createGrass, createNightSky, createSky } from './backdrop.js'
+import { NIGHT_GROUND, createCityRing, createFloodlights, createGrass, createNightDome, createSky } from './backdrop.js'
 import { createCourt } from '../game/court.js'
 
 const MODEL_URL = `${import.meta.env.BASE_URL}models/athlete_game.glb`
@@ -111,15 +111,15 @@ const RUN_HALF = 2
 const DEFAULT_CLIP = 'Idle'
 // 淡入淡出秒數，沿用 reference 原型的 0.35 s
 const FADE_SECONDS = 0.35
-const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup', 'Pass', 'Catch', 'Rebound', 'Dunk', 'Celebrate', 'Frustrated'])
+const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup', 'Pass', 'Catch', 'Rebound', 'Steal', 'Block', 'Dunk', 'Celebrate', 'Frustrated'])
 
 // 隊伍配色會換的材質（見 CLAUDE.md）
 const TEAM_MATERIALS = { shirt: 'Athlete_Shirt', shorts: 'Athlete_Shorts' }
 
 // 夜晚球場（主畫面）：籃框在角色後方 4.2 m（罰球線附近），照明燈在球場四角
 export const NIGHT_BASKET_Z = -4.2
-// 圍欄外的大樓：離籃框多遠（左右兩面再遠 4 m）、最高的樓多高（公尺）
-const CITY_DISTANCE = 16
+// 球場外圍那一圈大樓：圓心在半場中間，半徑、最高的樓多高（公尺）
+const CITY_RADIUS = 24
 const CITY_HEIGHT = 9
 const FLOODLIGHTS = [[-9.5, -7.5], [9.5, -7.5], [-9.5, 9], [9.5, 9]]
 const NIGHT_HEMI = { sky: 0x6f78b8, ground: 0x2e3440, intensity: 0.45 * Math.PI }
@@ -151,7 +151,9 @@ function addMeadow(scene) {
 
 // 夜晚球場：夜空與城市剪影、半場球場與籃架、照明燈；主光從左前上方打下來，後方一道冷色輪廓光
 function addNightCourt(scene, gradientMap, outline) {
-  scene.background = createNightSky()
+  // 天空是一顆包住場景的球、大樓是場外的一圈圓筒（見 backdrop.js）；背景色只是墊底
+  scene.background = new THREE.Color(NIGHT_GROUND)
+  scene.add(createNightDome())
   scene.fog = new THREE.Fog(NIGHT_GROUND, 14, 34)
   const material = (hex) => new THREE.MeshToonMaterial({ color: hex, gradientMap })
 
@@ -159,14 +161,9 @@ function addNightCourt(scene, gradientMap, outline) {
   ground.rotation.x = -Math.PI / 2
   ground.position.y = -0.005
   scene.add(ground)
-  // 圍欄外三面的大樓：籃架後方一面、左右各一面（面向球場）
-  for (const [px, pz, turn, seed] of [[0, NIGHT_BASKET_Z - CITY_DISTANCE, 0, 5], [-CITY_DISTANCE - 4, NIGHT_BASKET_Z + 6, Math.PI / 2, 11], [CITY_DISTANCE + 4, NIGHT_BASKET_Z + 6, -Math.PI / 2, 17]]) {
-    const wall = createCityWall({ width: 64, height: CITY_HEIGHT, seed })
-    wall.position.x = px
-    wall.position.z = pz
-    wall.rotation.y = turn
-    scene.add(wall)
-  }
+  const city = createCityRing({ radius: CITY_RADIUS, height: CITY_HEIGHT })
+  city.position.z = NIGHT_BASKET_Z + 6
+  scene.add(city)
   const court = createCourt({ basketZ: NIGHT_BASKET_Z, material })
   const lights = createFloodlights({ positions: FLOODLIGHTS, material })
   for (const group of [court, lights]) {
@@ -218,6 +215,15 @@ export function createGallery(
   controls.maxDistance = 9
   controls.maxPolarAngle = Math.PI * 0.495
   controls.update()
+
+  const onGalleryKey = (event) => {
+    if (event.code === 'KeyR' && !event.repeat) {
+      camera.position.copy(view?.position ?? HOME_POS)
+      controls.target.copy(view?.target ?? HOME_TGT)
+      controls.update()
+    }
+  }
+  if (interactive) window.addEventListener('keydown', onGalleryKey)
 
   // 地面格線：5 m 見方、每格 0.25 m，用來看腳有沒有打滑；預設隱藏
   const grid = new THREE.GridHelper(5, 20, 0x4a3326, 0x6f7f62)
@@ -329,9 +335,10 @@ export function createGallery(
     return all
   }
 
-  // 再加一個角色（對戰模式的對手）：複製已載入的模型，有自己的動作播放和球衣配色（colors 同 setTeamColors）。
-  // 動作裡的球不顯示。模型載入後（ready 之後）才能呼叫。
-  // 回傳 { root, play(name, fade, timeScale, startAt), setTimeScale(scale), actionTime() }；timeScale 是負的就倒著播
+  // 再加一個角色（對戰模式的對手、隊友）：複製已載入的模型，有自己的動作播放和球衣配色（colors 同 setTeamColors）。
+  // 動作裡的球預設不顯示（ball.visible 由呼叫端自己開關；複製的角色沒有球的縮放軌道）。模型載入後（ready 之後）才能呼叫。
+  // 回傳「角色」：{ root, ball, clip 目前播的動作名稱, manualBall: true, play(name, fade, timeScale, startAt), setTimeScale(scale), actionTime() }；
+  // timeScale 是負的就倒著播
   const extras = []
   let clips = null
 
@@ -357,14 +364,39 @@ export function createGallery(
     extra.mixer.timeScale = mixer.timeScale
     const all = createActions(extra.mixer, clips)
     extras.push(extra)
-    return {
+    const actor = {
       root,
+      ball: root.getObjectByName(BALL_NODE),
+      clip: null,
+      manualBall: true,
       play(name, fade = FADE_SECONDS, timeScale = 1, startAt = 0) {
         extra.current = switchAction(all, extra.current, name, fade, timeScale, startAt)
+        actor.clip = name
       },
       setTimeScale: (scale) => extra.current?.setEffectiveTimeScale(scale),
       actionTime: () => extra.current?.time ?? 0,
     }
+    return actor
+  }
+
+  // 主角（展示館、練習模式的那個角色）包成和 addCharacter 一樣的「角色」介面，操控可以換到別的角色身上。
+  // 主角的球由縮放軌道決定顯示（manualBall: false）
+  let main = null
+  function mainActor() {
+    main ??= {
+      id: 'you',
+      root: character,
+      ball,
+      clip: null,
+      manualBall: false,
+      play(name, fade, timeScale, startAt) {
+        play(name, fade, timeScale, startAt)
+        main.clip = name
+      },
+      setTimeScale: (scale) => current?.setEffectiveTimeScale(scale),
+      actionTime: () => current?.time ?? 0,
+    }
+    return main
   }
 
   // 動作 name 第 time 秒時，球心在角色座標裡的位置（角色在原點、面向 +Z）。播放中的動作會停掉，之後要重新 play
@@ -468,8 +500,10 @@ export function createGallery(
     setMovePush,
     setTeamColors,
     addCharacter,
+    mainActor,
     sampleBall,
     camera,
+    domElement: renderer.domElement,
     actionTime: () => current?.time ?? 0,
     // 目前動作的播放速度倍數（遊戲裡跳投按住時放慢、早放開時快轉）
     setTimeScale: (scale) => current?.setEffectiveTimeScale(scale),
@@ -477,6 +511,7 @@ export function createGallery(
     getBall: () => ball,
     dispose() {
       renderer.setAnimationLoop(null)
+      if (interactive) window.removeEventListener('keydown', onGalleryKey)
       resizeObserver.disconnect()
       controls.dispose()
       scene.traverse((o) => {
@@ -485,7 +520,7 @@ export function createGallery(
         o.material?.map?.dispose()
         o.material?.dispose()
       })
-      scene.background.dispose()
+      scene.background.dispose?.()
       renderer.dispose()
       renderer.domElement.remove()
     },

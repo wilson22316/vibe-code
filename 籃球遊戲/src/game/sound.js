@@ -91,15 +91,25 @@ const SOUNDS = {
     SOUNDS.rim()
     SOUNDS.swish()
   },
-  // 火鍋：手拍到球
+  // 接球：雙手啪一聲接穩球（和地板反彈的咚聲區隔）
+  catch() {
+    tone({ from: 175, to: 85, peak: 0.45, attack: 0.004, decay: 0.06 })
+    noise({ filter: 'lowpass', from: 1600, to: 450, peak: 0.28, attack: 0.003, decay: 0.045 })
+  },
+  // 火鍋：清脆的手掌重拍球聲加低頻衝擊
   block() {
-    noise({ filter: 'bandpass', from: 1400, to: 500, q: 0.7, peak: 0.8, decay: 0.09 })
-    tone({ from: 200, to: 70, peak: 0.6, decay: 0.12 })
+    noise({ filter: 'bandpass', from: 1800, to: 520, q: 0.65, peak: 0.9, decay: 0.11 })
+    noise({ filter: 'highpass', from: 2600, peak: 0.45, decay: 0.05 })
+    tone({ from: 220, to: 65, peak: 0.72, decay: 0.14 })
   },
   // 抄截：短促的一拍加往上的音
   steal() {
-    noise({ filter: 'highpass', from: 2500, peak: 0.4, decay: 0.05 })
-    tone({ type: 'triangle', from: 500, to: 900, peak: 0.3, decay: 0.12, at: 0.03 })
+    noise({ filter: 'highpass', from: 2500, peak: 0.45, decay: 0.05 })
+    tone({ type: 'triangle', from: 520, to: 940, peak: 0.34, decay: 0.12, at: 0.02 })
+  },
+  // 抄球／封蓋撲空：短促揮空風聲
+  whiff() {
+    noise({ filter: 'bandpass', from: 1150, to: 420, q: 0.8, peak: 0.2, attack: 0.01, decay: 0.09 })
   },
   // 突破：球鞋摩擦地板
   squeak() {

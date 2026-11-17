@@ -58,11 +58,12 @@ const CONTEST_JUMP = 0.3
 // 球判定完（碰框彈出來）後，對手隔幾秒才去搶
 
 // 對手抄球：玩家運球（不是突破中）時離他 FOE_STEAL_RANGE m 內，每 FOE_STEAL_EVERY 秒伸手一次（成功機率見 LEVELS 的 foeSteal）
-const FOE_STEAL_RANGE = 1.0
+const FOE_STEAL_RANGE = 1.05
 const FOE_STEAL_EVERY = 1.2
-const FOE_REACH = 0.35 // 伸手的動作多久（秒）
+const FOE_STEAL_HIT = 7 / 24 // 抄截動作揮過球面的時機（秒）
+const FOE_STEAL_DURATION = 16 / 24 // 伸手抄球的動作總長（秒）
 // 玩家搶到防守籃板或抄到球時，對手愣住幾秒才開始防守
-const TURNOVER_STUN = 0.5
+const TURNOVER_STUN = 0.85
 
 // --- 玩家防守 ---
 // 抄球：對手運球中、離他 STEAL_RANGE m 內按 D，有 STEAL_CHANCE 的機率抄到
@@ -107,9 +108,9 @@ const START = new THREE.Vector3(0, 0, NIGHT_BASKET_Z + 6.5) // 開球位置，�
 const TURN_SPEED = 10
 const FADE = 0.2
 const SLIDE_SPEED = MOVE_SPEEDS.DefenseSlide
-// 干擾的跳躍借用 Rebound：從第 4 格（已屈膝）開始播，第 8 格起跳、第 20 格落地
-const CONTEST_FROM = 4 / 24
-const CONTEST_TO = 20 / 24
+// 干擾與封蓋採用專用 Block 動作：第 2 格開始、第 24 格結束
+const CONTEST_FROM = 2 / 24
+const CONTEST_TO = 24 / 24
 // 撿球的範圍和玩家一樣（practice.js 的 PICKUP_RADIUS、PICKUP_HEIGHT）
 const PICKUP_RADIUS = 0.7
 const PICKUP_HEIGHT = 1.3
@@ -120,6 +121,9 @@ const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * M
 const flat = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
 
 // 站在 position 出手算不算三分線外（街頭規則的 2 分）
+// 1 對 1、3 對 3 共用的固定鏡頭
+export const FIXED_CAMERA = CAMERA
+
 export function beyondArc(position, rim) {
   return Math.hypot(position.x - rim.x, position.z - rim.z) > COURT.THREE_RADIUS || Math.abs(position.x) > COURT.THREE_SIDE
 }
@@ -168,7 +172,8 @@ export function createDuel({
   let stun = 0 // 被突破晃到，還要愣幾秒
   let needClear = false // 進攻方還沒把球帶出三分線
   let stealWait = 0 // 對手多久後可以再伸手抄球
-  let reachLeft = 0 // 對手伸手抄球的動作還剩幾秒
+  let reachTime = 0 // 對手伸手抄球的動作播到幾秒
+  let reachChecked = false
   let denied = 0 // 上次提醒「先清球」是什麼時候（免得一直跳訊息）
   let looseFor = 0 // 球判定完多久了
   let think = 0
@@ -374,29 +379,24 @@ export function createDuel({
       setClip('Defense')
       return
     }
-    // 玩家運球時貼得夠近就伸手抄球（突破中抄不到）
+    // 玩家運球時貼得夠近就發動抄截動作（第 7 格才判定有沒有抄到）
     stealWait -= delta
     if (state.hasBall && !state.shooting && !state.bursting && stealWait <= 0 && flat(player, p) < FOE_STEAL_RANGE) {
       stealWait = FOE_STEAL_EVERY
+      turnTowards(Math.atan2(player.x - p.x, player.z - p.z), 1)
+      mode = 'reach'
+      reachTime = 0
+      reachChecked = false
       clip = null
-      setClip('Catch', 1, 2 / 24)
-      if (Math.random() < L.foeSteal) {
-        controls.loseBall()
-        stats.foe.steals++
-        onSound('steal')
-        takeOver('foe', '被抄截了！')
-      } else {
-        mode = 'reach'
-        reachLeft = FOE_REACH
-      }
+      setClip('Steal', 1, 0)
       return
     }
-    // 玩家跳投：夠近就跳起來干擾，每球一次
+    // 玩家跳投：夠近就跳起來用 Block 動作干擾，每球一次
     if (state.shooting === 'jump' && !jumped && flat(player, p) < CONTEST_RANGE) {
       jumped = true
       mode = 'contest'
       clip = null
-      setClip('Rebound', 1, CONTEST_FROM)
+      setClip('Block', 1, CONTEST_FROM)
       return
     }
     const speed = seen.distanceTo(seenBefore) / delta
@@ -538,10 +538,12 @@ export function createDuel({
     let velocity
     let scored = false
     if (state.jumping && front && flat(player, p) < BLOCK_RANGE) {
-      // 火鍋：球往旁邊彈出去
-      const a = heading + Math.PI + (Math.random() - 0.5) * 2
-      velocity = new THREE.Vector3(Math.sin(a) * 3, 2, Math.cos(a) * 3)
+      // 火鍋：從手掌高度往遠離籃框的方向狠狠扇飛，出手者短暫頓挫
+      const away = Math.atan2(player.x - rim.x, player.z - rim.z) + (Math.random() - 0.5) * 0.8
+      velocity = new THREE.Vector3(Math.sin(away) * 6.2, from.y > 2.2 ? -1.4 : 1.1, Math.cos(away) * 6.2)
       stats.you.blocks++
+      stun = 0.6
+      controls.impact('block', from)
       onMessage('火鍋！')
       onSound('block')
       onMoment('block')
@@ -552,7 +554,10 @@ export function createDuel({
       const angle = controls.shotAngle(from)
       const ideal = physics.idealSpeed(from, angle) ?? 9
       const error = shot.kind === 'Layup' ? LAYUP_ERROR : L.shotError
-      velocity = (shot.kind === 'Layup' && physics.bankShotVelocity(from)) || physics.launchVelocity(from, angle, ideal)
+      // 上籃打板；跳投在籃下也會打板（practice.js 的 aimVelocity）
+      velocity =
+        (shot.kind === 'Layup' ? physics.bankShotVelocity(from) : controls.aimVelocity(from)) ||
+        physics.launchVelocity(from, angle, ideal)
       const k = contest * rules.accuracy('foe')
       velocity.multiplyScalar(1 + gauss() * error.speed * k)
       velocity.applyAxisAngle(UP, THREE.MathUtils.degToRad(gauss() * error.side * k))
@@ -560,7 +565,7 @@ export function createDuel({
     shot.released = true
     foeBall.visible = false
     looseFor = 0
-    controls.foeShot({ kind: shot.kind, spot: shot.spot, from, velocity, scored })
+    controls.foeShot({ by: 'foe', kind: shot.kind, spot: shot.spot, from, velocity, scored })
   }
 
   // 玩家或對手每投一球的結果（practice.js 的 onResult）。回傳這球得幾分
@@ -666,8 +671,20 @@ export function createDuel({
     else if (mode === 'shot') updateShot(delta, state)
     else if (mode === 'loose' && state.ball) chase(delta, state)
     else if (mode === 'reach') {
-      reachLeft -= delta
-      if (reachLeft <= 0) mode = 'guard'
+      reachTime += delta
+      if (!reachChecked && reachTime >= FOE_STEAL_HIT) {
+        reachChecked = true
+        if (state.hasBall && !state.shooting && !state.bursting && flat(foe.root.position, state.position) < FOE_STEAL_RANGE && Math.random() < L.foeSteal) {
+          controls.loseBall()
+          controls.impact('steal', state.position.clone().setY(0.95))
+          stats.foe.steals++
+          onSound('steal')
+          takeOver('foe', '被抄截了！')
+          return
+        }
+        onSound('whiff')
+      }
+      if (reachTime >= FOE_STEAL_DURATION) mode = 'guard'
     }
   }
 
@@ -718,14 +735,20 @@ export function createDuel({
     onBurst() {
       if (mode === 'guard' && flat(controls.state().position, foe.root.position) < BURST_RANGE) stun = BURST_STUN
     },
-    // 玩家伸手抄球：對手運球中、夠近才有機會
+    // 玩家伸手抄球：對手運球中、夠近才有機會（第 7 格才判定）
     steal() {
       if (phase !== 'play' || mode !== 'dribble') return false
       if (flat(controls.state().position, foe.root.position) > STEAL_RANGE || Math.random() > L.stealChance) return false
+      const pos = foe.root.position.clone().setY(0.95)
       stats.you.steals++
-      onSound('steal')
       takeOver('you', '抄截成功！')
-      return true
+      return { pos }
+    },
+    onBlock() {
+      stats.you.blocks++
+      stun = 0.6
+      onMessage('火鍋！')
+      onMoment('block')
     },
     // 還沒清球不能出手；按了就提醒一次
     canShoot: () => !(offense === 'you' && needClear),
