@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import { COURT } from './court.js'
 import { BALL_RADIUS, createBallPhysics } from './ballPhysics.js'
 import { attachFire, createFireGlow } from './fire.js'
+import { createImpactEffects } from './impact.js'
 import { MOVE_SPEEDS, NIGHT_BASKET_Z } from '../gallery/scene.js'
 
 // ===== 可以調整的參數 =====
@@ -59,8 +60,8 @@ const DRIVE_ANGLE = 75
 // 籃下的跳投改成打板：離籃框 BANK_RANGE m 內，而且不是從底線附近（和籃板太平行、打不到板）出手時
 const BANK_RANGE = 3
 const BANK_MIN_FRONT = 0.6 // 出手點要在籃框前方（往球場那側）至少這麼遠
-// 球在空中的旋轉（弧度／秒）：跳投、上籃是後旋，灌籃、被蓋掉的球轉得慢
-const SPIN = { jump: 20, Layup: 12, Dunk: 4 }
+// 球在空中的旋轉（弧度／秒）：跳投、上籃為正值後旋，灌籃為微幅前滾
+const SPIN = { jump: 20, Layup: 12, Dunk: -4 }
 // 上籃打板的隨機誤差（標準差，同 SHOT_ERROR）；目前約 85% 會進。灌籃一定進
 export const LAYUP_ERROR = { speed: 0.05, side: 3 }
 // =========================
@@ -77,13 +78,17 @@ const CLIPS = { stand: 'Dribble', sprint: 'Sprint', shoot: 'Shoot' }
 const NO_BALL = { stand: 'Idle', sprint: 'Run' }
 const DEFENSE_STAND = 'Defense'
 // 沒持球時的動作（做完前不能操控）：
-// jump 跳起來搶籃板、封蓋：借用 Rebound 第 4 格（已屈膝）到第 20 格落地，第 8 格離地
-// steal 伸手抄球：借用 Catch 第 2～12 格
-// pass 傳球：Pass 第 4 格（球已收到胸前）開始播，第 9 格出手（3 對 3 由 team.js 在 PASS_WINDUP 秒後把球傳出去），第 14 格就能動
+// jump 跳起來搶籃板：Rebound 第 4 格（已屈膝）到第 20 格落地，第 8～19 格在空中
+// block 跳起來蓋火鍋：專用 Block 動作第 2 格到第 24 格，第 7～19 格在空中
+// steal 伸手抄球：專用 Steal 動作，第 7 格手臂揮過球面時判定抄截
+// pass 傳球：Pass 第 4 格（球已收到胸前）開始播，第 9 格出手，第 14 格就能動
+// catch 接球緩衝：Catch 第 8～13 格把球收到胸前
 const ACTS = {
-  jump: { clip: 'Rebound', from: 4 / 24, to: 20 / 24, air: 8 / 24 },
-  steal: { clip: 'Catch', from: 2 / 24, to: 12 / 24, air: Infinity },
+  jump: { clip: 'Rebound', from: 4 / 24, to: 20 / 24, airFrom: 8 / 24, airTo: 19 / 24, air: 8 / 24 },
+  block: { clip: 'Block', from: 2 / 24, to: 24 / 24, airFrom: 7 / 24, airTo: 19 / 24, air: Infinity },
+  steal: { clip: 'Steal', from: 0, to: 16 / 24, hitAt: 7 / 24, air: Infinity },
   pass: { clip: 'Pass', from: 4 / 24, to: 14 / 24, air: Infinity },
+  catch: { clip: 'Catch', from: 8 / 24, to: 13 / 24, air: Infinity },
 }
 export const PASS_WINDUP = 5 / 24
 const ACT_FADE = 0.1
@@ -125,6 +130,21 @@ const SPEED_EASE = 0.15 // 速度跟上動作的時間常數（秒），和淡�
 // 鏡頭：在角色背後（AIM → 角色的延長線上）偏上，看向角色前方
 // shotLift：球在空中時看的高度往上加多少，球飛到最高點才不會跑出畫面
 const CAMERA = { fov: 50, back: 4.2, height: 2.3, lookAhead: 2.0, lookHeight: 1.2, shotLift: 1.3, ease: 0.12 }
+const PRACTICE_DIST = Math.hypot(CAMERA.back, CAMERA.height - CAMERA.lookHeight)
+const DEFAULT_PRACTICE_PITCH = Math.atan2(CAMERA.height - CAMERA.lookHeight, CAMERA.back)
+const PITCH_MIN = 0 // 最低為平視（高度不低於注視點，不會穿入地面）
+const PITCH_MAX = 1.1
+const VIEW_ZOOM_MIN = 0.45
+const VIEW_ZOOM_MAX = 2.0
+const VIEW_DRAG_SENSITIVITY = 0.006
+// V 鍵循環切換的預設視角（pitch 為 null 時採用該模式原本的預設俯角）
+const VIEW_PRESETS = [
+  { label: '預設', yaw: 0, pitch: null, zoom: 1 },
+  { label: '遠景全場', yaw: 0, pitch: 0.44, zoom: 1.45 },
+  { label: '斜側轉播', yaw: -0.9, pitch: 0.28, zoom: 1.1 },
+  { label: '低角度街頭', yaw: 0, pitch: 0.03, zoom: 0.88 },
+  { label: '高空俯視', yaw: 0, pitch: 0.95, zoom: 1.25 },
+]
 
 const ARROWS = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }
 const KEYS = new Set([...Object.keys(ARROWS), 'KeyA', 'KeyD', 'KeyF', 'Space'])
@@ -185,6 +205,20 @@ export function createPracticeControls({
   let clip = null
   let speed = 0
   let cameraYaw = 0 // 鏡頭往前的方向（繞 Y 軸，0 是往 -Z）
+  let baseCamYaw = 0
+  let baseFixedYaw = 0
+  let fixedRadius = 9.65
+  let defaultPitch = DEFAULT_PRACTICE_PITCH
+  let viewYaw = 0 // 玩家用滑鼠左右旋轉的視角偏移（弧度）
+  let currentYawOffset = 0
+  let viewPitch = DEFAULT_PRACTICE_PITCH // 玩家用滑鼠上下旋轉的俯角（弧度，0 為平視）
+  let currentPitch = DEFAULT_PRACTICE_PITCH
+  let viewZoom = 1 // 玩家用滾輪調整的視角距離倍數
+  let currentZoom = 1
+  let presetIndex = 0
+  let dragging = false
+  let dragX = 0
+  let dragY = 0
   const cameraPos = new THREE.Vector3()
   const look = new THREE.Vector3()
   const goal = new THREE.Vector3()
@@ -205,6 +239,7 @@ export function createPracticeControls({
   const netBall = { p: null, v: null, radius: BALL_RADIUS }
   let fireGlow = null // 著火時球上的火光（飛行中的球）
   let fireAura = null // 著火時手上的球和腳邊的火光
+  let impacts = null // 蓋火鍋、抄截、接球瞬間的衝擊波特效
   let clockTime = 0 // 累計的時間（火光閃爍用）
   const zoneScale = () => rules.zoneScale?.() ?? 1
   const chargeInfo = () => ({ power, ideal: idealPower(), perfect: PERFECT_ZONE * zoneScale(), good: GOOD_ZONE * zoneScale() })
@@ -227,7 +262,7 @@ export function createPracticeControls({
     held.add(event.code)
     if (mode !== 'free') return
     if (event.code === 'Space') {
-      if (!hasBall) startAct('jump')
+      if (!hasBall) startAct(shot?.ball ? 'jump' : 'block')
       else if (rules.canShoot?.() === false) rules.onDenied?.()
       else if (driving()) {
         mode = 'drive'
@@ -237,10 +272,10 @@ export function createPracticeControls({
     else if (event.code === 'KeyF' && hasBall && rules.pass?.(inputDirection())) {
       hasBall = false
       startAct('pass')
-    }
-    else if (event.code === 'KeyD' && !hasBall && rules.steal) {
+    } else if (event.code === 'KeyD' && !hasBall && rules.steal) {
+      const face = rules.faceTarget?.()
+      if (face) character.rotation.y = Math.atan2(face.x - character.position.x, face.z - character.position.z)
       startAct('steal')
-      if (rules.steal()) giveBall()
     }
   }
   function onKeyUp(event) {
@@ -250,8 +285,39 @@ export function createPracticeControls({
   // 切到別的視窗時放開所有按鍵，免得角色一直走；蓄力中就直接出手、切入中就取消
   function onBlur() {
     held.clear()
+    dragging = false
+    if (stage?.domElement) stage.domElement.style.cursor = ''
     if (shot?.holding) letGo(false)
     if (mode === 'drive') mode = 'free'
+  }
+
+  function onPointerDown(event) {
+    if (event.button !== 0) return
+    dragging = true
+    dragX = event.clientX
+    dragY = event.clientY
+    stage.domElement.style.cursor = 'grabbing'
+  }
+
+  function onPointerMove(event) {
+    if (!dragging) return
+    const dx = event.clientX - dragX
+    const dy = event.clientY - dragY
+    dragX = event.clientX
+    dragY = event.clientY
+    viewYaw -= dx * VIEW_DRAG_SENSITIVITY
+    viewPitch = THREE.MathUtils.clamp(viewPitch + dy * VIEW_DRAG_SENSITIVITY, PITCH_MIN, PITCH_MAX)
+  }
+
+  function onPointerUp() {
+    if (!dragging) return
+    dragging = false
+    if (stage?.domElement) stage.domElement.style.cursor = ''
+  }
+
+  function onWheel(event) {
+    event.preventDefault()
+    viewZoom = THREE.MathUtils.clamp(viewZoom * Math.exp(event.deltaY * 0.001), VIEW_ZOOM_MIN, VIEW_ZOOM_MAX)
   }
 
   function start(gallery) {
@@ -269,6 +335,23 @@ export function createPracticeControls({
     fireGlow = createFireGlow()
     freeBall.add(fireGlow)
     if (!rules.externalFire) fireAura = attachFire(ball, character) // 複製出場上的球之後才掛，免得場上的球多一團
+    impacts = createImpactEffects(stage.scene)
+
+    const fixed = rules.fixedCamera
+    if (fixed) {
+      const dx = fixed.position.x - fixed.target.x
+      const dy = fixed.position.y - fixed.target.y
+      const dz = fixed.position.z - fixed.target.z
+      baseFixedYaw = Math.atan2(dx, dz)
+      fixedRadius = Math.hypot(dx, dy, dz)
+      defaultPitch = Math.atan2(dy, Math.hypot(dx, dz))
+    } else {
+      defaultPitch = DEFAULT_PRACTICE_PITCH
+    }
+    presetIndex = 0
+    viewYaw = currentYawOffset = 0
+    viewPitch = currentPitch = defaultPitch
+    viewZoom = currentZoom = 1
 
     stage.camera.fov = CAMERA.fov
     stage.camera.updateProjectionMatrix()
@@ -276,6 +359,11 @@ export function createPracticeControls({
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     window.addEventListener('blur', onBlur)
+    stage.domElement.addEventListener('pointerdown', onPointerDown)
+    stage.domElement.addEventListener('wheel', onWheel, { passive: false })
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointercancel', onPointerUp)
   }
 
   // 重新開球（一開始，以及對戰模式每次換球權）：ball 手上有沒有球、position 站哪裡（預設是開球位置），面向籃框；
@@ -298,20 +386,27 @@ export function createPracticeControls({
     setClip(standClip(), 0)
   }
 
-  // 換操控別的角色（3 對 3）：ball 新角色手上有沒有球。場上滾的球照舊（可以去撿）。
+  // 換操控別的角色（3 對 3）：ball 新角色手上有沒有球；catchBall 為 true 時先播接球緩衝動作。
   // 投籃、跳躍等動作做到一半時不要換（見 busy）
-  function bind(next, { ball = false } = {}) {
+  function bind(next, { ball = false, catchBall = false } = {}) {
     if (next === actor) return
     if (shot?.holding) onCharge(null)
     if (shot && !shot.ball) shot = null // 還沒出手的投籃（不會發生，保險）
     actor = next
     character = next.root
-    mode = 'free'
-    act = null
     emote = null
     speed = 0
     burst = 0
     hasBall = ball
+    if (catchBall && ball) {
+      mode = 'act'
+      act = { kind: 'catch', time: ACTS.catch.from }
+      clip = ACTS.catch.clip
+      actor.play(ACTS.catch.clip, 0.08, 1, act.time)
+      return
+    }
+    mode = 'free'
+    act = null
     clip = null
     setClip(standClip(), PICKUP_FADE)
   }
@@ -416,13 +511,15 @@ export function createPracticeControls({
 
   function startAct(kind) {
     mode = 'act'
-    spend(kind)
-    if (kind === 'jump') onSound('jump')
-    act = { kind, time: ACTS[kind].from }
+    if (STAMINA_COST[kind]) spend(kind)
+    else if (kind === 'block') spend('jump')
+    if (kind === 'jump' || kind === 'block') onSound('jump')
+    act = { kind, time: ACTS[kind].from, checked: false }
     setClip(ACTS[kind].clip, ACT_FADE, act.time)
   }
 
-  // 跳起來、伸手抄球的動作中：帶著原本的速度滑一小段；跳在空中時抓得到附近的球
+  // 跳起來、蓋火鍋、伸手抄球、接球緩衝的動作中：帶著原本的速度滑一小段；
+  // 抄球在揮過球面的第 hitAt 秒才判定；跳在空中時抓得到附近的球
   function updateAct(delta) {
     const spec = ACTS[act.kind]
     act.time += delta
@@ -430,6 +527,17 @@ export function createPracticeControls({
     const a = character.rotation.y
     moveBy(Math.sin(a) * speed * delta, Math.cos(a) * speed * delta)
     rules.collide?.(character.position)
+    if (act.kind === 'steal' && !act.checked && act.time >= spec.hitAt) {
+      act.checked = true
+      const hit = rules.steal?.()
+      if (hit) {
+        giveBall()
+        onSound('steal')
+        impacts?.trigger('steal', hit.pos ?? character.position.clone().setY(0.95))
+      } else {
+        onSound('whiff')
+      }
+    }
     if (!hasBall && act.time >= spec.air) tryPickup(true)
     if (act.time >= spec.to) {
       mode = 'free'
@@ -441,6 +549,12 @@ export function createPracticeControls({
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('keyup', onKeyUp)
     window.removeEventListener('blur', onBlur)
+    stage?.domElement?.removeEventListener('pointerdown', onPointerDown)
+    stage?.domElement?.removeEventListener('wheel', onWheel)
+    window.removeEventListener('pointermove', onPointerMove)
+    window.removeEventListener('pointerup', onPointerUp)
+    window.removeEventListener('pointercancel', onPointerUp)
+    if (stage?.domElement) stage.domElement.style.cursor = ''
     held.clear()
   }
 
@@ -788,12 +902,28 @@ export function createPracticeControls({
     physics.update(b, delta)
     keepInCourt(b)
     if (!shot?.ball) return
+    // 空中補蓋：對方剛出手、球還在上升前段時，玩家剛好起跳在空中伸手也能把球狠狠拍飛
+    if (shot.by !== me() && !shot.blocked && !shot.judged && b.age < 0.28 && b.v.y > 0 && isAirborneBlock()) {
+      const a = character.rotation.y
+      const hx = character.position.x + Math.sin(a) * 0.35
+      const hz = character.position.z + Math.cos(a) * 0.35
+      const hy = character.position.y + 2.25
+      if (Math.hypot(b.p.x - hx, b.p.z - hz) < 1.15 && Math.abs(b.p.y - hy) < 1.15) {
+        shot.blocked = true
+        const swatYaw = a + (Math.random() - 0.5) * 0.7
+        b.v.set(Math.sin(swatYaw) * 6.2, -1.2, Math.cos(swatYaw) * 6.2)
+        shot.spinAxis.set(b.v.x, 0, b.v.z).normalize().cross(THREE.Object3D.DEFAULT_UP)
+        onSound('block')
+        impacts?.trigger('block', b.p)
+        rules.onBlock?.(b.p)
+      }
+    }
     freeBall.position.copy(b.p)
     if (b.p.y <= BALL_RADIUS + 0.01) {
       const v = Math.hypot(b.v.x, b.v.z)
       if (v > 1e-3) freeBall.rotateOnWorldAxis(rollAxis.set(b.v.z / v, 0, -b.v.x / v), (v / BALL_RADIUS) * delta)
     } else {
-      freeBall.rotateOnWorldAxis(shot.spinAxis, -delta * (SPIN[shot.kind] ?? SPIN.jump))
+      freeBall.rotateOnWorldAxis(shot.spinAxis, delta * (SPIN[shot.kind] ?? SPIN.jump))
     }
     // 打框、打板、落地的聲音：看物理的旗標和彈地次數有沒有變
     if (b.touchedRim && !heard.rim) onSound('rim')
@@ -835,10 +965,13 @@ export function createPracticeControls({
     const reach = air ? AIR_PICKUP_RADIUS : PICKUP_RADIUS
     const height = air ? AIR_PICKUP_HEIGHT : PICKUP_HEIGHT
     if (!shot.judged || b.p.y > height || Math.hypot(b.p.x - p.x, b.p.z - p.z) > reach) return
+    const catchPos = b.p.clone()
     freeBall.visible = false
     shot = null
     hasBall = true
-    if (mode === 'free') setClip(inputDirection() ? CLIPS.sprint : CLIPS.stand, PICKUP_FADE)
+    onSound('catch')
+    impacts?.trigger('catch', catchPos)
+    if (mode === 'free') startAct('catch')
   }
 
   // 運球聲：手上的球（動作裡的球）掉到地板附近的那一格響一聲
@@ -860,16 +993,29 @@ export function createPracticeControls({
   }
 
   // k：這一格鏡頭往目標移動的比例（1 是直接到位）
-  // 鏡頭：固定鏡頭直接擺好（往 -Z 看，所以 ↑ 是往籃框）；不然在角色背後跟拍，慢慢轉向籃框後方的點
+  // 鏡頭：支援滑鼠左鍵上下左右拖曳旋轉（viewYaw、viewPitch，最低為平視不穿地）、滾輪縮放（viewZoom）與 V 鍵切換視角。
   function updateCamera(k) {
+    const viewEase = k >= 1 ? 1 : Math.min(1, k * 2.5)
+    currentYawOffset += (viewYaw - currentYawOffset) * viewEase
+    currentPitch += (viewPitch - currentPitch) * viewEase
+    currentZoom += (viewZoom - currentZoom) * viewEase
+
     const fixed = rules.fixedCamera
     if (fixed) {
-      cameraYaw = 0
-      stage.camera.position.copy(fixed.position)
+      const yaw = baseFixedYaw + currentYawOffset
+      cameraYaw = wrapAngle(yaw)
+      const dist = fixedRadius * currentZoom
+      const horiz = dist * Math.cos(currentPitch)
+      stage.camera.position.set(
+        fixed.target.x + Math.sin(yaw) * horiz,
+        fixed.target.y + dist * Math.sin(currentPitch),
+        fixed.target.z + Math.cos(yaw) * horiz,
+      )
       stage.camera.lookAt(fixed.target)
       return
     }
-    cameraYaw = k >= 1 ? yawToAim() : wrapAngle(cameraYaw + wrapAngle(yawToAim() - cameraYaw) * k)
+    baseCamYaw = k >= 1 ? yawToAim() : wrapAngle(baseCamYaw + wrapAngle(yawToAim() - baseCamYaw) * k)
+    cameraYaw = wrapAngle(baseCamYaw + currentYawOffset)
     placeCamera(k)
   }
 
@@ -877,12 +1023,26 @@ export function createPracticeControls({
     const p = character.position
     const fx = -Math.sin(cameraYaw)
     const fz = -Math.cos(cameraYaw)
-    goal.set(p.x - fx * CAMERA.back, CAMERA.height, p.z - fz * CAMERA.back)
+    const dist = PRACTICE_DIST * currentZoom
+    const horiz = dist * Math.cos(currentPitch)
+    const camY = CAMERA.lookHeight + dist * Math.sin(currentPitch)
+    const ahead = CAMERA.lookAhead * Math.cos(currentPitch) * Math.min(1, currentZoom)
+    goal.set(p.x - fx * horiz, camY, p.z - fz * horiz)
     cameraPos.lerp(goal, k)
     stage.camera.position.copy(cameraPos)
     lift += ((shot?.ball && !shot.judged ? CAMERA.shotLift : 0) - lift) * k * 0.5
-    look.set(p.x + fx * CAMERA.lookAhead, CAMERA.lookHeight + lift, p.z + fz * CAMERA.lookAhead)
+    look.set(p.x + fx * ahead, CAMERA.lookHeight + lift, p.z + fz * ahead)
     stage.camera.lookAt(look)
+  }
+
+  function nextView() {
+    presetIndex = (presetIndex + 1) % VIEW_PRESETS.length
+    const preset = VIEW_PRESETS[presetIndex]
+    currentYawOffset = wrapAngle(currentYawOffset)
+    viewYaw = preset.yaw
+    viewPitch = preset.pitch ?? defaultPitch
+    viewZoom = preset.zoom
+    return preset.label
   }
 
   function update(delta, paused) {
@@ -912,7 +1072,14 @@ export function createPracticeControls({
     net.userData.step(delta, shot?.ball ? netBall : null)
     clockTime += delta
     fireAura?.(Boolean(rules.onFire?.(me())), clockTime)
+    impacts?.update(delta, stage.camera)
     updateCamera(Math.min(1, delta / CAMERA.ease))
+  }
+
+  function isAirborneBlock() {
+    if (mode !== 'act' || (act.kind !== 'block' && act.kind !== 'jump')) return false
+    const spec = ACTS[act.kind]
+    return act.time >= spec.airFrom && act.time <= spec.airTo
   }
 
   return {
@@ -925,6 +1092,7 @@ export function createPracticeControls({
     giveBall,
     foeShot,
     bind,
+    impact: (kind, pos) => impacts?.trigger(kind, pos),
     // 正在做不能被打斷的動作（投籃、跳、抄球、傳球、情緒動作），這時不要換操控的角色
     busy: () => mode !== 'free',
     actor: () => actor,
@@ -933,6 +1101,7 @@ export function createPracticeControls({
     restore,
     replayNet,
     aimVelocity,
+    nextView,
     // 體力回滿（對戰模式新的一場開始時）
     rest: () => (stamina = 1),
     // 以下給對戰模式的對手用：和玩家同一套物理、出手點、切入路線
@@ -952,7 +1121,7 @@ export function createPracticeControls({
       bursting: burst > 0,
       hasBall,
       shooting: mode === 'shoot' ? shot.kind : null,
-      jumping: mode === 'act' && act.kind === 'jump',
+      jumping: isAirborneBlock(),
       ball: shot?.ball ? { position: shot.ball.p, velocity: shot.ball.v, judged: shot.judged, scored: shot.ball.scored, by: shot.by } : null,
     }),
   }

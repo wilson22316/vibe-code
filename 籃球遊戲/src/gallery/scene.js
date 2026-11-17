@@ -111,7 +111,7 @@ const RUN_HALF = 2
 const DEFAULT_CLIP = 'Idle'
 // 淡入淡出秒數，沿用 reference 原型的 0.35 s
 const FADE_SECONDS = 0.35
-const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup', 'Pass', 'Catch', 'Rebound', 'Dunk', 'Celebrate', 'Frustrated'])
+const ONCE_CLIPS = new Set(['Shoot', 'StopJump', 'SetShot', 'Layup', 'Pass', 'Catch', 'Rebound', 'Steal', 'Block', 'Dunk', 'Celebrate', 'Frustrated'])
 
 // 隊伍配色會換的材質（見 CLAUDE.md）
 const TEAM_MATERIALS = { shirt: 'Athlete_Shirt', shorts: 'Athlete_Shorts' }
@@ -215,6 +215,15 @@ export function createGallery(
   controls.maxDistance = 9
   controls.maxPolarAngle = Math.PI * 0.495
   controls.update()
+
+  const onGalleryKey = (event) => {
+    if (event.code === 'KeyR' && !event.repeat) {
+      camera.position.copy(view?.position ?? HOME_POS)
+      controls.target.copy(view?.target ?? HOME_TGT)
+      controls.update()
+    }
+  }
+  if (interactive) window.addEventListener('keydown', onGalleryKey)
 
   // 地面格線：5 m 見方、每格 0.25 m，用來看腳有沒有打滑；預設隱藏
   const grid = new THREE.GridHelper(5, 20, 0x4a3326, 0x6f7f62)
@@ -494,6 +503,7 @@ export function createGallery(
     mainActor,
     sampleBall,
     camera,
+    domElement: renderer.domElement,
     actionTime: () => current?.time ?? 0,
     // 目前動作的播放速度倍數（遊戲裡跳投按住時放慢、早放開時快轉）
     setTimeScale: (scale) => current?.setEffectiveTimeScale(scale),
@@ -501,6 +511,7 @@ export function createGallery(
     getBall: () => ball,
     dispose() {
       renderer.setAnimationLoop(null)
+      if (interactive) window.removeEventListener('keydown', onGalleryKey)
       resizeObserver.disconnect()
       controls.dispose()
       scene.traverse((o) => {

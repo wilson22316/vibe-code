@@ -57,12 +57,13 @@ const GUARD_CONTEST_RANGE = 2.4 // 我方干擾對手出手的範圍和強度
 const GUARD_CONTEST_MAX = 5
 const BURST_RANGE = 2.5 // 玩家突破時，這麼近的對手會愣住 BURST_STUN 秒
 const BURST_STUN = 0.6
-const TURNOVER_STUN = 0.5 // 換球權時（抄截、搶到籃板），失去球的那隊愣住幾秒
+const TURNOVER_STUN = 0.85 // 換球權時（抄截、搶到籃板），失去球的那隊愣住幾秒
 const STEAL_RANGE = 1.6 // 玩家抄球的範圍（成功率見 LEVELS 的 stealChance）
 const BLOCK_RANGE = 1.8 // 對手出手時玩家正在跳、在他前方這麼近就蓋掉
-const FOE_STEAL_RANGE = 1.0 // 對手貼近玩家到這麼近時，每 FOE_STEAL_EVERY 秒伸手抄一次（成功率見 LEVELS 的 foeSteal）
+const FOE_STEAL_RANGE = 1.05 // 對手貼近玩家到這麼近時，每 FOE_STEAL_EVERY 秒伸手抄一次（成功率見 LEVELS 的 foeSteal）
 const FOE_STEAL_EVERY = 1.2
-const FOE_REACH = 0.35
+const FOE_STEAL_HIT = 7 / 24 // 抄截動作揮過球面的時機（秒）
+const FOE_STEAL_DURATION = 16 / 24
 const FOE_OPEN = 1.6 // 對手持球時，最近的防守者離他超過這個距離算有空檔
 const FOE_SHOT_RANGE = 7.2
 const FOE_DUNK_CLEAR = 2.5
@@ -84,8 +85,9 @@ const MARGIN = 0.3
 const TURN_SPEED = 10
 const FADE = 0.2
 const SLIDE_SPEED = MOVE_SPEEDS.DefenseSlide
-const CONTEST_FROM = 4 / 24
-const CONTEST_TO = 20 / 24
+const CONTEST_FROM = 2 / 24
+const CONTEST_TO = 24 / 24
+const CATCH_END = 13 / 24
 const PASS_FROM = 4 / 24 // 傳球動作從第 4 格開始播（同 practice.js 的 ACTS.pass）
 const PASS_LENGTH = 10 / 24
 const PICKUP_RADIUS = 0.7
@@ -306,14 +308,14 @@ export function createTeamMatch({
   }
 
   // ---------- 操控換人 ----------
-  function control(a, ball = false) {
+  function control(a, ball = false, options = {}) {
     if (a === ctrl) {
       if (ball && !controls.state().hasBall) controls.giveBall()
       return
     }
     const prev = ctrl
     ctrl = a
-    controls.bind(a.actor, { ball })
+    controls.bind(a.actor, { ball, ...options })
     a.act = null
     prev.clip = null
     prev.act = null
@@ -442,6 +444,8 @@ export function createTeamMatch({
     if (thieves.length && Math.random() < chance) pass.intercept = thieves[0].d
     const receiver = pass.intercept ?? pass.to
     pass.end = receiver.pos.clone().setY(1.15)
+    pass.spinAxis = new THREE.Vector3(pass.end.x - pass.start.x, 0, pass.end.z - pass.start.z).normalize().cross(UP)
+    if (pass.spinAxis.lengthSq() < 1e-6) pass.spinAxis.set(1, 0, 0)
     pass.duration = Math.max(0.2, pass.start.distanceTo(pass.end) / PASS_SPEED)
     pass.t = 0
     passBall.position.copy(pass.start)
@@ -460,28 +464,37 @@ export function createTeamMatch({
     pass.t += delta
     const receiver = pass.intercept ?? pass.to
     pass.end.set(receiver.pos.x, 1.15, receiver.pos.z) // 接球的人還在動的話跟著他
+    if (!pass.preCatch && pass.duration - pass.t <= 0.18 && !isCtrl(receiver)) {
+      pass.preCatch = true
+      face(receiver, pass.from.pos, 1)
+      setClip(receiver, 'Catch', 1, 3 / 24, 0.08)
+    }
     const k = Math.min(1, pass.t / pass.duration)
     passBall.position.lerpVectors(pass.start, pass.end, k)
     passBall.position.y += Math.sin(Math.PI * k) * PASS_ARC * pass.start.distanceTo(pass.end)
-    passBall.rotateX(-delta * 12)
+    passBall.rotateOnWorldAxis(pass.spinAxis, delta * 12)
     if (k < 1) return
+    const arrivePos = passBall.position.clone()
     passBall.visible = false
     const thief = pass.intercept
     pass = null
     if (thief) {
       stats[thief.team].steals++
       onSound('steal')
+      controls.impact('steal', arrivePos)
+      if (!isCtrl(thief)) setClip(thief, 'Steal', 1, 6 / 24, 0.05)
       takeOver(thief, thief.team === 'you' ? '抄到傳球！' : '傳球被抄了！')
       return
     }
     holder = receiver
     receiver.spot.copy(receiver.pos)
-    onSound('bounce', 0.4)
-    if (receiver.team === 'you') control(receiver, true)
+    onSound('catch')
+    controls.impact('catch', arrivePos)
+    if (receiver.team === 'you') control(receiver, true, { catchBall: true })
     else {
-      receiver.act = null
+      receiver.act = { kind: 'catch', time: 8 / 24 }
       receiver.think = 0.35
-      setClip(receiver, 'Dribble')
+      setClip(receiver, 'Catch', 1, 8 / 24, 0.05)
     }
   }
 
@@ -629,9 +642,11 @@ export function createTeamMatch({
     let velocity
     let scored = false
     if (blocker) {
-      const angle = heading + Math.PI + (Math.random() - 0.5) * 2
-      velocity = new THREE.Vector3(Math.sin(angle) * 3, 2, Math.cos(angle) * 3)
+      const away = Math.atan2(ctrl.pos.x - rim.x, ctrl.pos.z - rim.z) + (Math.random() - 0.5) * 0.8
+      velocity = new THREE.Vector3(Math.sin(away) * 6.2, from.y > 2.2 ? -1.4 : 1.1, Math.cos(away) * 6.2)
       stats[ctrl.team].blocks++
+      a.stun = 0.6
+      controls.impact('block', from)
       onMessage('火鍋！')
       onSound('block')
       onMoment('block')
@@ -672,7 +687,7 @@ export function createTeamMatch({
       a.jumped = true
       a.act = { kind: 'contest' }
       a.clip = null
-      setClip(a, 'Rebound', 1, CONTEST_FROM)
+      setClip(a, 'Block', 1, CONTEST_FROM)
       return
     }
     if (!markShooting) a.jumped = false
@@ -699,19 +714,15 @@ export function createTeamMatch({
     else slideTo(a, mark.pos, delta)
   }
 
-  // 對手伸手抄玩家的球
+  // 對手伸手抄玩家的球（先播 Steal 動作，第 7 格才判定是否抄到）
   function tryReach(a, delta, state) {
     a.stealWait -= delta
     if (!state.hasBall || state.shooting || state.bursting || a.stealWait > 0 || flat(a.pos, ctrl.pos) > FOE_STEAL_RANGE) return false
     a.stealWait = FOE_STEAL_EVERY
+    face(a, ctrl.pos, 1)
+    a.act = { kind: 'reach', time: 0, checked: false }
     a.clip = null
-    setClip(a, 'Catch', 1, 2 / 24)
-    if (Math.random() < L.foeSteal) {
-      controls.loseBall()
-      stats.foe.steals++
-      onSound('steal')
-      takeOver(a, '被抄截了！')
-    } else a.act = { kind: 'reach', left: FOE_REACH }
+    setClip(a, 'Steal', 1, 0)
     return true
   }
 
@@ -816,9 +827,24 @@ export function createTeamMatch({
         if (a.act.time >= PASS_FROM + PASS_LENGTH) a.act = null
       } else if (a.act?.kind === 'contest') {
         if (a.actor.actionTime() >= CONTEST_TO) a.act = null
+      } else if (a.act?.kind === 'catch') {
+        a.act.time += delta
+        if (a.act.time >= CATCH_END) a.act = null
       } else if (a.act?.kind === 'reach') {
-        a.act.left -= delta
-        if (a.act.left <= 0) a.act = null
+        a.act.time += delta
+        if (!a.act.checked && a.act.time >= FOE_STEAL_HIT) {
+          a.act.checked = true
+          if (state.hasBall && !state.shooting && !state.bursting && flat(a.pos, ctrl.pos) < FOE_STEAL_RANGE && Math.random() < L.foeSteal) {
+            controls.loseBall()
+            controls.impact('steal', ctrl.pos.clone().setY(0.95))
+            stats.foe.steals++
+            onSound('steal')
+            takeOver(a, '被抄截了！')
+            break
+          }
+          onSound('whiff')
+        }
+        if (a.act.time >= FOE_STEAL_DURATION) a.act = null
       }
     }
     if (phase !== 'play') return
@@ -989,14 +1015,20 @@ export function createTeamMatch({
     onBurst() {
       for (const a of opponents()) if (flat(a.pos, ctrl.pos) < BURST_RANGE && a.mark === ctrl) a.stun = BURST_STUN
     },
-    // 玩家伸手抄球：對手持球的人在範圍內才有機會
+    // 玩家伸手抄球：對手持球的人在範圍內才有機會（第 7 格才判定）
     steal() {
       if (phase !== 'play' || !holder || holder.team === ctrl.team || holder.act) return false
       if (flat(ctrl.pos, holder.pos) > STEAL_RANGE || Math.random() > L.stealChance) return false
+      const pos = holder.pos.clone().setY(0.95)
       stats[ctrl.team].steals++
-      onSound('steal')
       takeOver(ctrl, '抄截成功！')
-      return true
+      return { pos }
+    },
+    onBlock() {
+      stats[ctrl.team].blocks++
+      if (lastFoeShooter) lastFoeShooter.stun = 0.6
+      onMessage('火鍋！')
+      onMoment('block')
     },
     defending: () => offense !== ctrl.team,
     faceTarget: () => (offense !== ctrl.team ? (holder?.pos ?? null) : null),

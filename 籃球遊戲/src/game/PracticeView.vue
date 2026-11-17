@@ -16,7 +16,7 @@ const emit = defineEmits(['exit'])
 const stage = ref(null)
 const status = ref('載入中…')
 const paused = ref(false)
-const showHint = ref(true) // 左上角的操作說明，按 V 切換
+const showHint = ref(true) // 左上角的操作說明，按 R 切換
 const charge = ref(null) // 蓄力中：{ power, ideal, perfect, good }（0～1）
 const stats = ref({ shots: 0, makes: 0 })
 const toast = ref(null) // { message, made }
@@ -56,9 +56,11 @@ function showBanner(text, kind = '') {
 // 慢動作和鏡頭震動（在 onFrame 裡套用）
 let slowScale = 1
 let slowLeft = 0
+let hitStopLeft = 0
 let shake = 0
 function moment(kind) {
   ;[slowScale, slowLeft] = SLOW[kind]
+  if (kind === 'block') hitStopLeft = 0.055
   shake = Math.max(shake, SHAKE[kind])
 }
 
@@ -252,7 +254,10 @@ function frame(delta) {
   }
   const waiting = paused.value || (duel && !level.value) // 暫停中，或還沒選難度
   let scale = 1
-  if (slowLeft > 0 && !waiting) {
+  if (hitStopLeft > 0 && !waiting) {
+    hitStopLeft -= delta
+    scale = 0
+  } else if (slowLeft > 0 && !waiting) {
     slowLeft -= delta
     scale = slowScale
   }
@@ -282,10 +287,13 @@ function frame(delta) {
 
 function onKey(event) {
   unlockSound() // 瀏覽器要等按過鍵才准發聲
-  if (event.code === 'KeyV' && !event.repeat) showHint.value = !showHint.value
+  if (event.code === 'KeyR' && !event.repeat) showHint.value = !showHint.value
   if (replay) {
     if (event.code === 'Space' || event.code === 'Enter') endReplay()
     return
+  }
+  if (event.code === 'KeyV' && !event.repeat && !status.value && !paused.value && !(duel && !level.value)) {
+    showToast(`視角：${controls.nextView()}`, false)
   }
   if (event.key === 'Escape') setPaused(!paused.value)
 }
@@ -363,7 +371,7 @@ onBeforeUnmount(() => {
   </div>
   <p v-if="grade" class="grade" :class="grade">{{ GRADE_LABELS[grade] }}</p>
 
-  <!-- 操作說明：左上角、一個按鍵一列，按 V 顯示或隱藏（載入中的訊息也在左上角，那時先不顯示） -->
+  <!-- 操作說明：左上角、一個按鍵一列，按 R 顯示或隱藏（載入中的訊息也在左上角，那時先不顯示） -->
   <div v-if="showHint && !status" class="hint" aria-hidden="true">
     <span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移動</span>
     <span><kbd>A</kbd> 突破（加方向鍵）</span>
@@ -373,8 +381,10 @@ onBeforeUnmount(() => {
     <span v-if="duel"><kbd>A</kbd> 防守時按住自動跟防</span>
     <span v-if="duel"><kbd>D</kbd> 抄球（防守時）</span>
     <span v-if="mode === 'team'"><kbd>F</kbd> 傳球（按著方向鍵選隊友）</span>
+    <span><kbd>左鍵拖曳</kbd> 旋轉視角・<kbd>滾輪</kbd> 縮放</span>
+    <span><kbd>V</kbd> 切換視角</span>
     <span><kbd>Esc</kbd> 暫停</span>
-    <span><kbd>V</kbd> 顯示／隱藏操作說明</span>
+    <span><kbd>R</kbd> 顯示／隱藏操作說明</span>
   </div>
 
   <p v-if="banner" class="banner" :class="banner.kind">{{ banner.text }}</p>
