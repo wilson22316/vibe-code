@@ -2,13 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { createGallery } from '../gallery/scene.js'
 import { KITS, loadColors } from '../menu/teamColors.js'
-import { LEVELS, SHOT_CLOCK, WIN_SCORE, createDuel } from './duel.js'
+import { FIXED_CAMERA, LEVELS, SHOT_CLOCK, WIN_SCORE, createDuel } from './duel.js'
 import { createTeamMatch } from './team.js'
 import { createPracticeControls } from './practice.js'
 import { loadRecords, recordGame, saveLevel } from './records.js'
 import { play as playSound, unlock as unlockSound } from './sound.js'
 
-// 練習模式：夜晚半場，方向鍵移動、按住 A 衝刺、按下空白鍵起跳、按住加力道、放開出手（見 practice.js）。Esc 暫停。
+// 練習模式：夜晚半場，操控和 1 對 1 相同（見 practice.js），鏡頭、體力也一樣（PRACTICE_RULES），只是沒有對手、不計分。Esc 暫停。
 // mode 是 'duel' 時是 1 對 1：操控相同，場上多一個 AI 對手，輪流進攻、計分（見 duel.js）。
 const props = defineProps({ mode: { type: String, default: 'practice' } })
 const emit = defineEmits(['exit'])
@@ -131,8 +131,11 @@ const duel = versus
       })
     : null
 
+// 練習模式沒有對手，但鏡頭、體力和 1 對 1 一樣（固定鏡頭、突破和跳會耗體力），手感才不會兩邊不同
+const PRACTICE_RULES = { fixedCamera: FIXED_CAMERA, stamina: true }
+
 const controls = createPracticeControls({
-  rules: duel?.rules,
+  rules: duel?.rules ?? PRACTICE_RULES,
   onSound: playSound,
   onCharge(value) {
     charge.value = value
@@ -271,7 +274,11 @@ function frame(delta) {
     p.y += (Math.random() - 0.5) * shake
     shake *= Math.exp(-SHAKE_DECAY * delta)
   }
-  if (!duel || waiting) return
+  if (waiting) return
+  const state = controls.state()
+  if (Math.abs(state.stamina - stamina.value) > 0.01) stamina.value = state.stamina
+  if (state.tired !== tired.value) tired.value = state.tired
+  if (!duel) return
   if (!winner.value) record(step)
   if (endWinner && !winner.value && slowLeft <= 0) {
     startReplay()
@@ -280,9 +287,6 @@ function frame(delta) {
   if (!ended) elapsed.value += Math.min(step, 0.1)
   const left = Math.ceil(duel.shotClock())
   if (left !== shotClock.value) shotClock.value = left
-  const state = controls.state()
-  if (Math.abs(state.stamina - stamina.value) > 0.01) stamina.value = state.stamina
-  if (state.tired !== tired.value) tired.value = state.tired
 }
 
 function onKey(event) {
@@ -391,7 +395,7 @@ onBeforeUnmount(() => {
   <p v-if="replaying" class="replay">● REPLAY<small>空白鍵跳過</small></p>
 
   <!-- 體力條：突破、跳、抄球、切入會用掉，太低時變紅（跑不快、投不準、不能突破） -->
-  <div v-if="duel && level" class="stamina" :class="{ tired }" aria-hidden="true">
+  <div v-if="!status && (!duel || level)" class="stamina" :class="{ tired }" aria-hidden="true">
     <span>體力</span>
     <div class="bar"><div class="fill" :style="{ width: percent(stamina) }"></div></div>
   </div>
