@@ -582,35 +582,120 @@ export function createCityRing({ radius, height, repeat = 3, seed = 5 }) {
   return group
 }
 
-// 球場四角的照明燈柱，燈頭會發光（真正打光的燈在 scene.js）。material(hex) 由呼叫端提供。
+// 燈柱聚光光錐的漸層貼圖：上方（燈頭處）柔和明亮，往下指數衰減至完全透明
+function createBeamTexture() {
+  const c = document.createElement('canvas')
+  c.width = 64
+  c.height = 128
+  const g = c.getContext('2d')
+  const grad = g.createLinearGradient(0, 0, 0, c.height)
+  grad.addColorStop(0, 'rgba(255,234,185,0.22)')
+  grad.addColorStop(0.25, 'rgba(255,230,175,0.12)')
+  grad.addColorStop(0.65, 'rgba(255,224,165,0.035)')
+  grad.addColorStop(1, 'rgba(255,224,165,0)')
+  g.fillStyle = grad
+  g.fillRect(0, 0, c.width, c.height)
+  return canvasTexture(c)
+}
+
+// 球場四角的照明燈柱：水泥底座、漸細鋼柱、T 型燈架橫臂與三盞投射燈頭，並附柔和聚光光束與燈光暈。
+// （真正打光與陰影的燈在 scene.js）。material(hex) 由呼叫端提供。
 export function createFloodlights({ positions, height = 8, material }) {
   const group = new THREE.Group()
+  group.name = 'Floodlights'
+
   const glowCanvas = document.createElement('canvas')
   glowCanvas.width = glowCanvas.height = 128
   const g = glowCanvas.getContext('2d')
   const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64)
-  grad.addColorStop(0, 'rgba(255,240,200,1)')
-  grad.addColorStop(0.25, 'rgba(255,226,160,0.55)')
+  grad.addColorStop(0, 'rgba(255,242,205,0.75)')
+  grad.addColorStop(0.28, 'rgba(255,226,160,0.32)')
   grad.addColorStop(1, 'rgba(255,226,160,0)')
   g.fillStyle = grad
   g.fillRect(0, 0, 128, 128)
   const glowMap = canvasTexture(glowCanvas)
+  const beamMap = createBeamTexture()
+
+  const coneSpecs = [
+    { topR: 0.48, bottomR: 3.4, len: 8.8, opacity: 0.34 },
+    { topR: 0.28, bottomR: 1.9, len: 7.4, opacity: 0.42 },
+  ]
 
   for (const [px, pz] of positions) {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, height, 12), material('#2f3a4a'))
+    // 水泥底座與鋼柱法蘭
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.16, 0.48), material('#444e5c'))
+    plinth.position.set(px, 0.08, pz)
+    plinth.userData.outline = true
+    group.add(plinth)
+
+    const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.18, 8), material('#27313d'))
+    collar.position.set(px, 0.25, pz)
+    collar.userData.outline = true
+    group.add(collar)
+
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.13, height, 10), material('#2b3644'))
     pole.position.set(px, height / 2, pz)
     pole.userData.outline = true
     group.add(pole)
-    // 燈頭朝球場中央
-    const head = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.5, 0.25), new THREE.MeshBasicMaterial({ color: '#fff1c8' }))
-    head.position.set(px, height + 0.1, pz)
-    head.lookAt(0, 0, 0)
-    head.userData.outline = true
-    group.add(head)
+
+    // T 型燈架橫臂與三盞獨立燈頭（局部 +Z 朝向球場中央地面）
+    const headGroup = new THREE.Group()
+    headGroup.position.set(px, height + 0.12, pz)
+    headGroup.lookAt(px * 0.25, 0, pz * 0.25)
+
+    const crossBar = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.08, 0.08), material('#2b3644'))
+    crossBar.position.set(0, -0.02, 0.14)
+    crossBar.userData.outline = true
+    headGroup.add(crossBar)
+
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.22), material('#2b3644'))
+    arm.position.set(0, -0.02, 0.04)
+    arm.userData.outline = true
+    headGroup.add(arm)
+
+    for (const lx of [-0.52, 0, 0.52]) {
+      const hood = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.2), material('#212a35'))
+      hood.position.set(lx, 0.08, 0.18)
+      hood.userData.outline = true
+      headGroup.add(hood)
+
+      const lens = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.3, 0.18),
+        new THREE.MeshBasicMaterial({ color: '#fff3cf' }),
+      )
+      lens.position.set(lx, 0.08, 0.282)
+      headGroup.add(lens)
+    }
+
+    // 雙層極淡聚光光束（AdditiveBlending + 垂直衰減，營造夜場空氣感）
+    for (const spec of coneSpecs) {
+      const coneGeo = new THREE.CylinderGeometry(spec.topR, spec.bottomR, spec.len, 24, 1, true)
+      coneGeo.rotateX(-Math.PI / 2)
+      coneGeo.translate(0, 0, spec.len / 2 + 0.26)
+      const cone = new THREE.Mesh(
+        coneGeo,
+        new THREE.MeshBasicMaterial({
+          map: beamMap,
+          transparent: true,
+          opacity: spec.opacity,
+          side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          fog: false,
+        }),
+      )
+      cone.position.set(0, 0.08, 0)
+      cone.renderOrder = 3
+      headGroup.add(cone)
+    }
+
+    // 縮小且柔和的燈頭發光暈，避免低角度鏡頭時背後出現過大的白球
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowMap, blending: THREE.AdditiveBlending, depthWrite: false }))
-    glow.position.copy(head.position)
-    glow.scale.setScalar(4)
-    group.add(glow)
+    glow.position.set(0, 0.08, 0.3)
+    glow.scale.setScalar(2.6)
+    headGroup.add(glow)
+
+    group.add(headGroup)
   }
   return group
 }

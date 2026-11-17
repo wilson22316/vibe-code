@@ -51,6 +51,8 @@ export function createHighlightReel({ onScore = () => {}, onWipe = () => {} } = 
   let net = null
   let freeBall = null
   const freeVel = new THREE.Vector3()
+  const rollAxis = new THREE.Vector3()
+  const netBall = { p: null, v: freeVel, radius: BALL_RADIUS }
   const dunkDistance = dunkDistanceTable()
   const sprintDistance = MOVE_SPEEDS.Sprint * SPRINT_TIME
   let releaseX = 0
@@ -86,8 +88,7 @@ export function createHighlightReel({ onScore = () => {}, onWipe = () => {} } = 
     released = scored = wiped = false
     shakeAt = -1
     freeBall.visible = false
-    net.scale.set(1, 1, 1)
-    net.rotation.set(0, 0, 0)
+    net.userData.reset?.()
   }
 
   // 角色從起跑點往籃框（-Z）推進的距離
@@ -108,16 +109,14 @@ export function createHighlightReel({ onScore = () => {}, onWipe = () => {} } = 
       freeVel.x *= 0.9
       freeVel.z *= 0.9
     }
-    freeBall.rotation.x -= freeVel.z * delta * 4
+    const v = Math.hypot(freeVel.x, freeVel.z)
+    if (v > 1e-3) freeBall.rotateOnWorldAxis(rollAxis.set(freeVel.z / v, 0, -freeVel.x / v), (v / BALL_RADIUS) * delta)
   }
 
-  // 籃網被球穿過後上下晃動、慢慢停下來
-  function updateNet() {
-    if (!released) return
-    const s = t - (DUNK_START + DUNK_RELEASE)
-    const k = Math.exp(-s * 3.5)
-    net.scale.y = 1 + 0.3 * k * Math.sin(s * 28)
-    net.rotation.x = 0.12 * k * Math.sin(s * 19)
+  // 籃網照球的位置與速度產生物理晃動（與練習、對戰模式共用）
+  function updateNet(delta) {
+    netBall.p = freeBall.visible ? freeBall.position : null
+    net.userData.step(delta, netBall.p ? netBall : null)
   }
 
   // 鏡頭：運球時低角度環繞 → 切入時籃框下往上拍 → 慶祝時正面特寫
@@ -183,7 +182,7 @@ export function createHighlightReel({ onScore = () => {}, onWipe = () => {} } = 
     if (t >= WIPE_AT + WIPE_COVER) restart()
 
     updateBall(delta)
-    updateNet()
+    updateNet(delta)
     updateCamera()
   }
 
